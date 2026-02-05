@@ -6,6 +6,7 @@ A Flutter package that provides a local HTTP proxy for caching and prefetching m
 
 - **Local HTTP Proxy**: Intercepts media requests and serves them from a local cache.
 - **Smart Caching**: Efficiently stores and retrieves media segments.
+- **Header Pass-through**: Support custom HTTP headers (e.g., Authorization, Referer) for secure media sources.
 - **Aggressive Prefetching**: Predictively downloads upcoming segments to minimize buffering.
 - **Startup Optimization**: Exclusive bandwidth mode for the first fragment and MP4 metadata (moov) to achieve near-instant playback.
 - **MP4 Optimization**: Automatically handles `moov` atom placement for faster startup.
@@ -27,14 +28,20 @@ dependencies:
 
 ### Basic Setup
 
-Start the proxy and get a proxied URL for your media:
+Start the proxy and get a proxied URL for your media (with optional headers):
 
 ```dart
 import 'package:media_proxy/media_proxy.dart';
 
 // Start the proxy and get the proxied URL
 final originalUrl = 'https://example.com/video.mp4';
-final proxyUrl = await MediaCacheProxy.getProxyUrl(originalUrl);
+final proxyUrl = await MediaCacheProxy.getProxyUrl(
+  originalUrl,
+  headers: {
+    'Authorization': 'Bearer your_token',
+    'Referer': 'https://your-app-domain.com',
+  },
+);
 
 // Use the proxyUrl with your favorite video player (e.g., video_player, chewie)
 // videoPlayerController = VideoPlayerController.network(proxyUrl);

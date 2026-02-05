@@ -3,6 +3,7 @@
 // =============================================================================
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -94,10 +95,21 @@ class MediaCacheProxy {
   }
 
   /// 获取代理URL
-  static Future<String> getProxyUrl(String originalUrl) async {
+  static Future<String> getProxyUrl(
+    String originalUrl, {
+    Map<String, String>? headers,
+  }) async {
     final baseUrl = await start();
-    final encoded = Uri.encodeComponent(originalUrl);
-    return '$baseUrl/media?url=$encoded';
+    final encodedUrl = Uri.encodeComponent(originalUrl);
+    var proxyUrl = '$baseUrl/media?url=$encodedUrl';
+
+    if (headers != null && headers.isNotEmpty) {
+      final headersJson = jsonEncode(headers);
+      final encodedHeaders = base64Url.encode(utf8.encode(headersJson));
+      proxyUrl += '&headers=$encodedHeaders';
+    }
+
+    return proxyUrl;
   }
 
   /// 处理HTTP请求
@@ -115,7 +127,26 @@ class MediaCacheProxy {
       final decodedUrl = Uri.decodeComponent(originalUrl);
       log(() => '[$sessionId] Original URL: $decodedUrl');
 
-      final task = await _downloadManager.getOrCreateTask(decodedUrl);
+      // 🔑 解析自定义 Headers
+      Map<String, String>? headers;
+      final headersParam = request.uri.queryParameters['headers'];
+      if (headersParam != null && headersParam.isNotEmpty) {
+        try {
+          final decodedHeadersJson = utf8.decode(
+            base64Url.decode(headersParam),
+          );
+          final map = jsonDecode(decodedHeadersJson) as Map<String, dynamic>;
+          headers = map.map((k, v) => MapEntry(k, v.toString()));
+          log(() => '[$sessionId] Decoded headers: $headers');
+        } catch (e) {
+          log(() => '[$sessionId] Failed to decode headers: $e');
+        }
+      }
+
+      final task = await _downloadManager.getOrCreateTask(
+        decodedUrl,
+        headers: headers,
+      );
       task.addSession();
 
       try {
@@ -542,6 +573,7 @@ class MediaCacheProxy {
   /// 预加载媒体
   static Future<bool> preload(
     String mediaUrl, {
+    Map<String, String>? headers,
     int segmentCount = 1,
     bool includeMoov = true,
     bool smart = false, // 🆕 新增：是否启用智能调度
@@ -559,7 +591,10 @@ class MediaCacheProxy {
       log(() => 'Preloading media: $mediaUrl (segments: $segmentCount)');
 
       await start();
-      final task = await instance._downloadManager.getOrCreateTask(mediaUrl);
+      final task = await instance._downloadManager.getOrCreateTask(
+        mediaUrl,
+        headers: headers,
+      );
 
       if (task.contentLength <= 0) {
         log(() => 'Preload failed: could not get content length');
@@ -663,9 +698,15 @@ class MediaCacheProxy {
   }
 
   /// 获取下载进度
-  static Future<double> getDownloadProgress(String mediaUrl) async {
+  static Future<double> getDownloadProgress(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
     try {
-      final task = await instance._downloadManager.getOrCreateTask(mediaUrl);
+      final task = await instance._downloadManager.getOrCreateTask(
+        mediaUrl,
+        headers: headers,
+      );
       return task.downloadProgress;
     } catch (e) {
       return 0.0;
@@ -673,9 +714,15 @@ class MediaCacheProxy {
   }
 
   /// 检查是否已完全缓存
-  static Future<bool> isFullyCached(String mediaUrl) async {
+  static Future<bool> isFullyCached(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
     try {
-      final task = await instance._downloadManager.getOrCreateTask(mediaUrl);
+      final task = await instance._downloadManager.getOrCreateTask(
+        mediaUrl,
+        headers: headers,
+      );
       return task.isFullyDownloaded;
     } catch (e) {
       return false;
@@ -690,19 +737,26 @@ class MediaCacheProxy {
   }
 
   /// 删除指定媒体缓存
-  static Future<bool> removeMediaCache(String mediaUrl) async {
+  static Future<bool> removeMediaCache(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
     try {
       final manager = instance._downloadManager;
+      final headersString = canonicalizeHeaders(headers);
+      final taskKey = headersString.isEmpty
+          ? mediaUrl
+          : '$mediaUrl|$headersString';
 
-      if (manager.tasks.containsKey(mediaUrl)) {
-        final task = manager.tasks[mediaUrl]!;
+      if (manager.tasks.containsKey(taskKey)) {
+        final task = manager.tasks[taskKey]!;
         if (task.hasActiveSessions) {
           log(() => 'Cannot remove cache: media is being played');
           return false;
         }
 
         task.cancel();
-        manager.tasks.remove(mediaUrl);
+        manager.tasks.remove(taskKey);
 
         if (await task.cacheDir.exists()) {
           await task.cacheDir.delete(recursive: true);
@@ -713,7 +767,7 @@ class MediaCacheProxy {
       }
 
       final cacheRoot = await manager.getCacheRoot();
-      final urlHash = computeMd5Hash(mediaUrl);
+      final urlHash = computeMd5Hash(taskKey);
       final cacheDir = Directory(p.join(cacheRoot.path, urlHash));
 
       if (await cacheDir.exists()) {

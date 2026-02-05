@@ -14,7 +14,9 @@ abstract class CacheEvictionPolicy {
   /// [cacheFiles] 所有缓存项列表（已排序）
   /// 返回需要删除的缓存项列表
   List<CacheEntry> selectFilesToEvict(
-      int currentSize, List<CacheEntry> cacheFiles);
+    int currentSize,
+    List<CacheEntry> cacheFiles,
+  );
 }
 
 /// 缓存项元数据
@@ -47,7 +49,9 @@ class SmartCachePolicy implements CacheEvictionPolicy {
 
   @override
   List<CacheEntry> selectFilesToEvict(
-      int currentSize, List<CacheEntry> cacheFiles) {
+    int currentSize,
+    List<CacheEntry> cacheFiles,
+  ) {
     final toDelete = <CacheEntry>[];
     final now = DateTime.now();
     int sizeAfterTTL = currentSize;
@@ -57,8 +61,10 @@ class SmartCachePolicy implements CacheEvictionPolicy {
       if (now.difference(entry.lastAccessTime) > maxAge) {
         toDelete.add(entry);
         sizeAfterTTL -= entry.sizeBytes;
-        log(() =>
-            'TTL Eviction: ${entry.mediaUrl} (Age: ${now.difference(entry.lastAccessTime).inHours}h)');
+        log(
+          () =>
+              'TTL Eviction: ${entry.mediaUrl} (Age: ${now.difference(entry.lastAccessTime).inHours}h)',
+        );
       }
     }
 

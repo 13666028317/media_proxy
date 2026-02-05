@@ -17,6 +17,7 @@ class _DownloadItem {
   final String mediaUrl;
   final MediaSegment segment;
   final Directory cacheDir;
+  final Map<String, String>? headers;
   final int priority;
   final DateTime createdAt;
   final bool Function()? cancelToken;
@@ -28,6 +29,7 @@ class _DownloadItem {
     required this.mediaUrl,
     required this.segment,
     required this.cacheDir,
+    this.headers,
     required this.priority,
     this.cancelToken,
     this.onComplete,
@@ -53,6 +55,7 @@ class GlobalDownloadQueue {
   final Map<String, int> _startupLocks = {};
   bool _isProcessing = false;
 
+  /// 获取当前正在播放的媒体 URL
   String? get currentPlayingUrl => _currentPlayingUrl;
 
   /// 设置当前正在播放的媒体
@@ -83,6 +86,7 @@ class GlobalDownloadQueue {
     required String mediaUrl,
     required MediaSegment segment,
     required Directory cacheDir,
+    Map<String, String>? headers,
     int priority = kPriorityBackground,
     bool Function()? cancelToken,
     void Function(bool success)? onComplete,
@@ -123,7 +127,7 @@ class GlobalDownloadQueue {
       return;
     }
 
-    // 🔑 修复：当前播放媒体时，使用传入优先级和 kPriorityPlaying 的较大值
+    // 🔑 修复：当前播放媒体时，使用传入优先级和 kPriority Playing 的较大值
     // 这样 kPriorityPlayingUrgent(200) 不会被降级为 kPriorityPlaying(100)
     final actualPriority = (mediaUrl == _currentPlayingUrl)
         ? (priority > kPriorityPlaying ? priority : kPriorityPlaying)
@@ -133,6 +137,7 @@ class GlobalDownloadQueue {
       mediaUrl: mediaUrl,
       segment: segment,
       cacheDir: cacheDir,
+      headers: headers,
       priority: actualPriority,
       cancelToken: cancelToken,
       onComplete: onComplete,
@@ -415,6 +420,7 @@ class GlobalDownloadQueue {
         mediaUrl: item.mediaUrl,
         segment: item.segment,
         cacheDir: item.cacheDir,
+        headers: item.headers,
         onProgress: item.onProgress,
         cancelToken: () => item.isCancelled,
       );

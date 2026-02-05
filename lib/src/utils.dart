@@ -15,7 +15,8 @@ void log(String Function() messageBuilder) {
   if (kEnableLogging) {
     if (kDebugMode) {
       print(
-          '[MediaCacheProxy] ${DateTime.now().toIso8601String()} - ${messageBuilder()}');
+        '[MediaCacheProxy] ${DateTime.now().toIso8601String()} - ${messageBuilder()}',
+      );
     }
   }
 }
@@ -35,6 +36,13 @@ String computeMd5Hash(String input) {
     hash = hash & 0xFFFFFFFF;
   }
   return hash.toRadixString(16).padLeft(8, '0');
+}
+
+/// 标准化 Headers 以便进行哈希计算
+String canonicalizeHeaders(Map<String, String>? headers) {
+  if (headers == null || headers.isEmpty) return '';
+  final sortedKeys = headers.keys.toList()..sort();
+  return sortedKeys.map((k) => '$k:${headers[k]}').join('|');
 }
 
 /// 格式化文件大小
@@ -104,8 +112,9 @@ HttpClient createHttpClient() {
   final client = HttpClient();
   // 🔑 优化：放宽连接限制，避免死锁
   client.maxConnectionsPerHost = 16;
-  client.connectionTimeout =
-      const Duration(milliseconds: kHttpConnectTimeoutMs);
+  client.connectionTimeout = const Duration(
+    milliseconds: kHttpConnectTimeoutMs,
+  );
   client.idleTimeout = const Duration(seconds: kHttpIdleTimeoutSeconds);
   return client;
 }

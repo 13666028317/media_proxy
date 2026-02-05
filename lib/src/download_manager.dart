@@ -45,23 +45,32 @@ class MediaDownloadManager {
   }
 
   /// 获取或创建下载任务
-  Future<MediaDownloadTask> getOrCreateTask(String mediaUrl) async {
+  Future<MediaDownloadTask> getOrCreateTask(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
+    // 🔑 统一任务 Key（考虑 Headers 差异）
+    final headersString = canonicalizeHeaders(headers);
+    final taskKey = headersString.isEmpty
+        ? mediaUrl
+        : '$mediaUrl|$headersString';
+
     // 检查内存中是否已存在
-    if (_tasks.containsKey(mediaUrl)) {
-      final task = _tasks[mediaUrl]!;
+    if (_tasks.containsKey(taskKey)) {
+      final task = _tasks[taskKey]!;
       task.updateAccessTime();
       return task;
     }
 
     // 检查是否有正在创建中的任务
-    if (_pendingTasks.containsKey(mediaUrl)) {
+    if (_pendingTasks.containsKey(taskKey)) {
       log(() => 'Waiting for pending task: $mediaUrl');
-      return _pendingTasks[mediaUrl]!.future;
+      return _pendingTasks[taskKey]!.future;
     }
 
     // 创建锁，开始创建任务
     final completer = Completer<MediaDownloadTask>();
-    _pendingTasks[mediaUrl] = completer;
+    _pendingTasks[taskKey] = completer;
 
     try {
       // 自动缓存清理
@@ -71,26 +80,27 @@ class MediaDownloadManager {
 
       final cacheRoot = await getCacheRoot();
 
-      // 使用 MD5 hash 作为目录名
-      final urlHash = computeMd5Hash(mediaUrl);
+      // 使用任务 Key 的哈希作为目录名
+      final urlHash = computeMd5Hash(taskKey);
       final cacheDir = Directory(p.join(cacheRoot.path, urlHash));
 
       final task = MediaDownloadTask(
         mediaUrl: mediaUrl,
         cacheDir: cacheDir,
+        requestHeaders: headers,
       );
 
       await task.initialize();
       task.updateAccessTime();
 
-      _tasks[mediaUrl] = task;
+      _tasks[taskKey] = task;
       completer.complete(task);
       return task;
     } catch (e) {
       completer.completeError(e);
       rethrow;
     } finally {
-      _pendingTasks.remove(mediaUrl);
+      _pendingTasks.remove(taskKey);
     }
   }
 
@@ -103,8 +113,10 @@ class MediaDownloadManager {
       // 2. 清理缓存大小
       final currentSize = await getCacheSize();
       if (currentSize > kDefaultMaxCacheSize) {
-        log(() =>
-            'Cache size ($currentSize) exceeds limit ($kDefaultMaxCacheSize), cleaning...');
+        log(
+          () =>
+              'Cache size ($currentSize) exceeds limit ($kDefaultMaxCacheSize), cleaning...',
+        );
         await cleanupCacheLRU(kDefaultMaxCacheSize);
       }
     } catch (e) {
@@ -141,8 +153,10 @@ class MediaDownloadManager {
   }
 
   /// 使用策略清理缓存 (默认 TTL + LRU)
-  Future<void> cleanupCacheLRU(int maxSize,
-      {CacheEvictionPolicy? policy}) async {
+  Future<void> cleanupCacheLRU(
+    int maxSize, {
+    CacheEvictionPolicy? policy,
+  }) async {
     final cacheRoot = await getCacheRoot();
     if (!await cacheRoot.exists()) return;
 
@@ -169,12 +183,16 @@ class MediaDownloadManager {
             // 在之前的重构中，我们在 saveConfig 时并没有保存 url，这需要修正，或者我们接受这里用 path
             // 让我们假设 task 已经初始化过，我们用 hash 也没关系，因为删除是基于 path 的
 
-            cacheInfoList.add(CacheEntry(
-              directory: entity,
-              lastAccessTime: DateTime.fromMillisecondsSinceEpoch(lastAccessMs),
-              sizeBytes: dirSize,
-              mediaUrl: 'hash:${p.basename(entity.path)}', // 占位符
-            ));
+            cacheInfoList.add(
+              CacheEntry(
+                directory: entity,
+                lastAccessTime: DateTime.fromMillisecondsSinceEpoch(
+                  lastAccessMs,
+                ),
+                sizeBytes: dirSize,
+                mediaUrl: 'hash:${p.basename(entity.path)}', // 占位符
+              ),
+            );
           } catch (e) {
             log(() => 'Corrupted cache, deleting: ${entity.path}');
             await entity.delete(recursive: true);
@@ -185,15 +203,21 @@ class MediaDownloadManager {
 
     // 使用策略引擎选择要删除的文件
     final activePolicy = policy ?? SmartCachePolicy(maxSizeBytes: maxSize);
-    int currentSize =
-        cacheInfoList.fold(0, (sum, info) => sum + info.sizeBytes);
+    int currentSize = cacheInfoList.fold(
+      0,
+      (sum, info) => sum + info.sizeBytes,
+    );
 
     // 执行策略筛选
-    final toDelete =
-        activePolicy.selectFilesToEvict(currentSize, cacheInfoList);
+    final toDelete = activePolicy.selectFilesToEvict(
+      currentSize,
+      cacheInfoList,
+    );
 
-    log(() =>
-        'Cache cleanup: current=${currentSize ~/ 1024 ~/ 1024}MB, evicting ${toDelete.length} items');
+    log(
+      () =>
+          'Cache cleanup: current=${currentSize ~/ 1024 ~/ 1024}MB, evicting ${toDelete.length} items',
+    );
 
     for (final info in toDelete) {
       final isActive = _tasks.values.any(
@@ -202,11 +226,13 @@ class MediaDownloadManager {
       );
 
       if (!isActive) {
-        log(() =>
-            'Deleting cache: ${info.directory.path} (${info.sizeBytes}B)');
+        log(
+          () => 'Deleting cache: ${info.directory.path} (${info.sizeBytes}B)',
+        );
 
         _tasks.removeWhere(
-            (_, task) => task.cacheDir.path == info.directory.path);
+          (_, task) => task.cacheDir.path == info.directory.path,
+        );
         await info.directory.delete(recursive: true);
         currentSize -= info.sizeBytes;
       } else {
@@ -214,17 +240,27 @@ class MediaDownloadManager {
       }
     }
 
-    log(() =>
-        'Cache cleanup completed: new size=${currentSize ~/ 1024 ~/ 1024}MB');
+    log(
+      () =>
+          'Cache cleanup completed: new size=${currentSize ~/ 1024 ~/ 1024}MB',
+    );
   }
 
   /// 移除任务（当没有活跃会话时）
-  Future<void> removeTaskIfInactive(String mediaUrl) async {
-    final task = _tasks[mediaUrl];
+  Future<void> removeTaskIfInactive(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
+    final headersString = canonicalizeHeaders(headers);
+    final taskKey = headersString.isEmpty
+        ? mediaUrl
+        : '$mediaUrl|$headersString';
+
+    final task = _tasks[taskKey];
     if (task != null && !task.hasActiveSessions) {
       GlobalDownloadQueue().cancelMedia(mediaUrl);
       await task.forceFlushConfig();
-      _tasks.remove(mediaUrl);
+      _tasks.remove(taskKey);
       task.dispose();
       log(() => 'Task removed from memory: $mediaUrl (cache files preserved)');
     }

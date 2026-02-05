@@ -19,6 +19,7 @@ class SegmentDownloader {
     required String mediaUrl,
     required MediaSegment segment,
     required Directory cacheDir,
+    Map<String, String>? headers,
     void Function(int downloadedBytes)? onProgress,
     bool Function()? cancelToken,
   }) async {
@@ -31,6 +32,7 @@ class SegmentDownloader {
           mediaUrl: mediaUrl,
           segment: segment,
           cacheDir: cacheDir,
+          headers: headers,
           onProgress: onProgress,
           cancelToken: cancelToken,
         );
@@ -57,6 +59,7 @@ class SegmentDownloader {
     required String mediaUrl,
     required MediaSegment segment,
     required Directory cacheDir,
+    Map<String, String>? headers,
     void Function(int downloadedBytes)? onProgress,
     bool Function()? cancelToken,
   }) async {
@@ -104,6 +107,13 @@ class SegmentDownloader {
     try {
       client = createHttpClient();
       final request = await client.getUrl(Uri.parse(mediaUrl));
+
+      // 🔑 注入自定义 Headers
+      if (headers != null && headers.isNotEmpty) {
+        headers.forEach((key, value) {
+          request.headers.set(key, value);
+        });
+      }
 
       request.headers.set(
         HttpHeaders.rangeHeader,
@@ -213,8 +223,10 @@ class SegmentDownloader {
       if (await finalFile.exists()) {
         final finalSize = await finalFile.length();
         if (finalSize >= segment.expectedSize) {
-          log(() =>
-              'Segment already finalized by another download: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+          log(
+            () =>
+                'Segment already finalized by another download: ${segment.startByte ~/ 1024 ~/ 1024}MB',
+          );
           segment.downloadedBytes = finalSize;
           segment.updateStatus(SegmentStatus.completed);
           segment.notifyDataAvailable();
@@ -232,8 +244,10 @@ class SegmentDownloader {
         // 🔑 最终验证：确保文件大小正确
         final tempSize = await tempFile.length();
         if (tempSize < segment.expectedSize) {
-          log(() =>
-              'Final validation failed: file size $tempSize < expected ${segment.expectedSize}');
+          log(
+            () =>
+                'Final validation failed: file size $tempSize < expected ${segment.expectedSize}',
+          );
           segment.updateStatus(SegmentStatus.failed);
           return;
         }
@@ -250,8 +264,10 @@ class SegmentDownloader {
         segment.notifyDataAvailable();
       } else {
         // tempFile 不存在，检查 finalFile 是否已被另一个下载处理
-        log(() =>
-            'Temp file not found, segment may have been finalized elsewhere');
+        log(
+          () =>
+              'Temp file not found, segment may have been finalized elsewhere',
+        );
         // 不标记为 completed，让调用方处理
       }
     } catch (e) {

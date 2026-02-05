@@ -10,10 +10,16 @@ import 'utils.dart';
 /// 预加载任务请求
 class PreloadRequest {
   final String url;
+  final Map<String, String>? headers;
   final int segmentCount;
   final bool includeMoov;
 
-  PreloadRequest(this.url, {this.segmentCount = 1, this.includeMoov = true});
+  PreloadRequest(
+    this.url, {
+    this.headers,
+    this.segmentCount = 1,
+    this.includeMoov = true,
+  });
 }
 
 /// 智能预加载调度器
@@ -44,6 +50,7 @@ class PreloadScheduler {
   /// [immediate] 如果为 true，则跳过防抖立即执行（适合确定用户已经停下来的场景）
   void schedule(
     String url, {
+    Map<String, String>? headers,
     int segmentCount = 1,
     bool includeMoov = true,
     bool immediate = false,
@@ -59,8 +66,12 @@ class PreloadScheduler {
       log(() => 'Preload request dropped: ${_pendingRequest!.url}');
     }
 
-    _pendingRequest = PreloadRequest(url,
-        segmentCount: segmentCount, includeMoov: includeMoov);
+    _pendingRequest = PreloadRequest(
+      url,
+      headers: headers,
+      segmentCount: segmentCount,
+      includeMoov: includeMoov,
+    );
 
     if (immediate) {
       _executePending();
@@ -101,6 +112,7 @@ class PreloadScheduler {
     try {
       await MediaCacheProxy.preload(
         request.url,
+        headers: request.headers,
         segmentCount: request.segmentCount,
         includeMoov: request.includeMoov,
       );

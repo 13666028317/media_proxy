@@ -1,3 +1,15 @@
+## 0.0.4
+
+* **新增功能：支持 Http 请求头透传 (Header Pass-through)**。现在可以在 `getProxyUrl` 和 `preload` 中传入自定义 Headers（如 `Authorization`, `Referer` 等），用于访问受保护的云存储资源。
+* **智能缓存隔离**：基于 `URL + Headers` 生成唯一的缓存 Key，确保不同鉴权信息的媒体资源物理隔离，防止缓存污染。
+* **全链路 Header 注入**：Headers 将自动应用于媒体元数据探测（HEAD/GET）及后续所有分片下载请求。
+* **最终稳定性审计**：完成了全项目的鲁棒性加固，修复了潜在的并发竞态及死锁隐患。
+
+## 0.0.3+1
+
+* 修复代码格式符合 pub.dev 标准。
+* 规范化公开 API 的文档注释。
+
 ## 0.0.3
 
 * **重磅优化：实现首屏起播独占模式 (Startup Exclusive Mode)**。在视频起播的关键瞬间，自动锁定全局带宽，优先保障首个分片和 MP4 元数据（moov）的下载，显著降低黑屏起播时间。
@@ -14,7 +26,3 @@
 ## 0.0.1
 
 * Initial release.
-* Local HTTP proxy for media caching.
-* Support for range requests and prefetching.
-* MP4 optimization (moov atom).
-* LRU cache management.

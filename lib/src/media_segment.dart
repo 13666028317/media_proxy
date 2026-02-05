@@ -91,12 +91,12 @@ class MediaSegment {
 
   /// 序列化为JSON
   Map<String, dynamic> toJson() => {
-        'startByte': startByte,
-        'endByte': endByte,
-        'status': status.index,
-        'downloadedBytes': downloadedBytes,
-        'lastUpdateTime': lastUpdateTime.millisecondsSinceEpoch,
-      };
+    'startByte': startByte,
+    'endByte': endByte,
+    'status': status.index,
+    'downloadedBytes': downloadedBytes,
+    'lastUpdateTime': lastUpdateTime.millisecondsSinceEpoch,
+  };
 
   /// 从JSON反序列化
   factory MediaSegment.fromJson(Map<String, dynamic> json) {

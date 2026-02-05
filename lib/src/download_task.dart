@@ -22,6 +22,7 @@ import 'utils.dart';
 class MediaDownloadTask {
   final String mediaUrl;
   final Directory cacheDir;
+  final Map<String, String>? requestHeaders;
 
   int contentLength = -1;
   String? _contentType;
@@ -40,7 +41,11 @@ class MediaDownloadTask {
   bool _moovPreloaded = false;
   List<int>? _initialData;
 
-  MediaDownloadTask({required this.mediaUrl, required this.cacheDir});
+  MediaDownloadTask({
+    required this.mediaUrl,
+    required this.cacheDir,
+    this.requestHeaders,
+  });
 
   // Getters
   String get contentType =>
@@ -124,6 +129,14 @@ class MediaDownloadTask {
 
       final client = createHttpClient();
       final request = await client.headUrl(Uri.parse(mediaUrl));
+
+      // 🔑 注入自定义 Headers
+      if (requestHeaders != null && requestHeaders!.isNotEmpty) {
+        requestHeaders!.forEach((key, value) {
+          request.headers.set(key, value);
+        });
+      }
+
       final response = await request.close();
 
       final lengthStr = response.headers.value(HttpHeaders.contentLengthHeader);
@@ -162,6 +175,14 @@ class MediaDownloadTask {
 
       final client = createHttpClient();
       final request = await client.getUrl(Uri.parse(mediaUrl));
+
+      // 🔑 注入自定义 Headers
+      if (requestHeaders != null && requestHeaders!.isNotEmpty) {
+        requestHeaders!.forEach((key, value) {
+          request.headers.set(key, value);
+        });
+      }
+
       request.headers.set(
         HttpHeaders.rangeHeader,
         'bytes=0-${kMoovDetectionBytes - 1}',
@@ -332,6 +353,7 @@ class MediaDownloadTask {
       mediaUrl: mediaUrl,
       segment: lastSegment,
       cacheDir: cacheDir,
+      headers: requestHeaders,
       priority: kPriorityPlayingUrgent - 50, // 150，仅次于首帧分片
       onProgress: (bytes) {
         updateSegmentStatus(lastSegment, SegmentStatus.downloading, bytes);
@@ -366,6 +388,12 @@ class MediaDownloadTask {
           final lastAccessMs = json['lastAccessTime'] as int?;
           if (lastAccessMs != null) {
             lastAccessTime = DateTime.fromMillisecondsSinceEpoch(lastAccessMs);
+          }
+
+          final headersJson = json['requestHeaders'] as Map<dynamic, dynamic>?;
+          if (headersJson != null) {
+            // 已在构造函数中通过参数传入，这里仅在需要从持久化恢复且构造函数没传时有用
+            // 但通常构造函数传入的优先级更高（即最新的请求头）
           }
 
           final segmentsJson = json['segments'] as List<dynamic>?;
@@ -415,6 +443,7 @@ class MediaDownloadTask {
         'contentLength': contentLength,
         'contentType': contentType,
         'lastAccessTime': lastAccessTime.millisecondsSinceEpoch,
+        'requestHeaders': requestHeaders,
         'segments': _segments.map((s) => s.toJson()).toList(),
       };
       await _configFile.writeAsString(jsonEncode(json));

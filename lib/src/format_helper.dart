@@ -108,8 +108,9 @@ class MediaFormatHelper {
           normalized == 'binary/octet-stream') {
         final inferred = inferMimeTypeFromUrl(url);
         if (inferred != null) {
-          log(() =>
-              'Server returned generic type, inferred from URL: $inferred');
+          log(
+            () => 'Server returned generic type, inferred from URL: $inferred',
+          );
           return inferred;
         }
       }
@@ -123,8 +124,9 @@ class MediaFormatHelper {
       return inferred;
     }
 
-    log(() =>
-        'Cannot determine MIME type, using default: $kDefaultContentType');
+    log(
+      () => 'Cannot determine MIME type, using default: $kDefaultContentType',
+    );
     return kDefaultContentType;
   }
 }

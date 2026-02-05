@@ -91,13 +91,17 @@ class MediaDownloadProgressListener {
   /// 当媒体完全下载后，Stream 会自动关闭
   static Stream<DownloadProgressInfo> listen(
     String mediaUrl, {
+    Map<String, String>? headers,
     int intervalMs = 500,
   }) async* {
     // 🔑 优化：滑动窗口采样点（存储时间戳和字节数对）
     final samples = <_ProgressSample>[];
     const windowDuration = Duration(seconds: 3);
 
-    final task = await MediaDownloadManager().getOrCreateTask(mediaUrl);
+    final task = await MediaDownloadManager().getOrCreateTask(
+      mediaUrl,
+      headers: headers,
+    );
 
     while (true) {
       try {
@@ -112,8 +116,9 @@ class MediaDownloadProgressListener {
 
         int downloadedBytes = 0;
         for (final seg in segments) {
-          downloadedBytes +=
-              seg.isCompleted ? seg.expectedSize : seg.downloadedBytes;
+          downloadedBytes += seg.isCompleted
+              ? seg.expectedSize
+              : seg.downloadedBytes;
         }
 
         // 🔑 优化：滑动窗口平均速度算法
@@ -165,13 +170,18 @@ class MediaDownloadProgressListener {
   /// [intervalMs] 轮询间隔
   static Future<void> onProgress(
     String mediaUrl, {
+    Map<String, String>? headers,
     required void Function(DownloadProgressInfo info) onProgress,
     void Function()? onComplete,
     void Function(Object error)? onError,
     int intervalMs = 500,
   }) async {
     try {
-      await for (final info in listen(mediaUrl, intervalMs: intervalMs)) {
+      await for (final info in listen(
+        mediaUrl,
+        headers: headers,
+        intervalMs: intervalMs,
+      )) {
         onProgress(info);
         if (info.isCompleted) {
           onComplete?.call();
@@ -186,9 +196,16 @@ class MediaDownloadProgressListener {
   /// 获取当前下载进度（单次查询）
   ///
   /// [mediaUrl] 原始媒体URL
-  static Future<DownloadProgressInfo?> getProgress(String mediaUrl) async {
+  /// [headers] 自定义请求头
+  static Future<DownloadProgressInfo?> getProgress(
+    String mediaUrl, {
+    Map<String, String>? headers,
+  }) async {
     try {
-      final task = await MediaDownloadManager().getOrCreateTask(mediaUrl);
+      final task = await MediaDownloadManager().getOrCreateTask(
+        mediaUrl,
+        headers: headers,
+      );
 
       final segments = task.segments;
       final completedSegments = segments.where((s) => s.isCompleted).length;
