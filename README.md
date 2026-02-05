@@ -7,6 +7,7 @@ A Flutter package that provides a local HTTP proxy for caching and prefetching m
 - **Local HTTP Proxy**: Intercepts media requests and serves them from a local cache.
 - **Smart Caching**: Efficiently stores and retrieves media segments.
 - **Aggressive Prefetching**: Predictively downloads upcoming segments to minimize buffering.
+- **Startup Optimization**: Exclusive bandwidth mode for the first fragment and MP4 metadata (moov) to achieve near-instant playback.
 - **MP4 Optimization**: Automatically handles `moov` atom placement for faster startup.
 - **Global Download Queue**: Manages concurrent downloads across different media tasks.
 - **Cache Management**: LRU-based cache cleanup and statistics.

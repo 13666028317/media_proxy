@@ -48,6 +48,9 @@ class GlobalDownloadQueue {
   final Map<String, _DownloadItem> _activeDownloads = {};
   final Map<String, int> _mediaActiveCount = {};
   String? _currentPlayingUrl;
+
+  /// 起播独占锁计数器：URL -> 活跃的起播请求数
+  final Map<String, int> _startupLocks = {};
   bool _isProcessing = false;
 
   String? get currentPlayingUrl => _currentPlayingUrl;
@@ -59,8 +62,10 @@ class GlobalDownloadQueue {
     final oldUrl = _currentPlayingUrl;
     _currentPlayingUrl = mediaUrl;
 
-    log(() =>
-        'Current playing changed: ${oldUrl ?? 'none'} → ${mediaUrl ?? 'none'}');
+    log(
+      () =>
+          'Current playing changed: ${oldUrl ?? 'none'} → ${mediaUrl ?? 'none'}',
+    );
 
     if (mediaUrl != null) {
       _boostPriority(mediaUrl, kPriorityPlaying);
@@ -85,27 +90,36 @@ class GlobalDownloadQueue {
   }) {
     // 🔑 防止重复入队：检查分片是否已完成、正在下载、或已在队列中
     if (segment.isCompleted) {
-      log(() =>
-          'Skip enqueue: segment already completed: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      log(
+        () =>
+            'Skip enqueue: segment already completed: ${segment.startByte ~/ 1024 ~/ 1024}MB',
+      );
       onComplete?.call(true);
       return;
     }
 
     if (segment.isDownloading) {
-      log(() =>
-          'Skip enqueue: segment already downloading: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      log(
+        () =>
+            'Skip enqueue: segment already downloading: ${segment.startByte ~/ 1024 ~/ 1024}MB',
+      );
       return;
     }
 
     // 检查是否已在队列中
     final key = '${mediaUrl}_${segment.startByte}';
-    final alreadyInQueue =
-        _pendingQueue.any((item) => item.mediaUrl == mediaUrl && item.segment.startByte == segment.startByte);
+    final alreadyInQueue = _pendingQueue.any(
+      (item) =>
+          item.mediaUrl == mediaUrl &&
+          item.segment.startByte == segment.startByte,
+    );
     final alreadyActive = _activeDownloads.containsKey(key);
 
     if (alreadyInQueue || alreadyActive) {
-      log(() =>
-          'Skip enqueue: segment already in queue/active: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      log(
+        () =>
+            'Skip enqueue: segment already in queue/active: ${segment.startByte ~/ 1024 ~/ 1024}MB',
+      );
       return;
     }
 
@@ -127,8 +141,11 @@ class GlobalDownloadQueue {
 
     _insertByPriority(item);
 
-    log(() => 'Enqueued: ${segment.startByte ~/ 1024 ~/ 1024}MB of $mediaUrl '
-        '(priority: $actualPriority, queue: ${_pendingQueue.length})');
+    log(
+      () =>
+          'Enqueued: ${segment.startByte ~/ 1024 ~/ 1024}MB of $mediaUrl '
+          '(priority: $actualPriority, queue: ${_pendingQueue.length})',
+    );
 
     _processQueue();
   }
@@ -168,55 +185,70 @@ class GlobalDownloadQueue {
 
   /// 提升特定媒体的优先级
   void _boostPriority(String mediaUrl, int newPriority) {
-    final items =
-        _pendingQueue.where((item) => item.mediaUrl == mediaUrl).toList();
+    final items = _pendingQueue
+        .where((item) => item.mediaUrl == mediaUrl)
+        .toList();
 
     _pendingQueue.removeWhere((item) => item.mediaUrl == mediaUrl);
 
     for (final item in items) {
-      _insertByPriority(_DownloadItem(
-        mediaUrl: item.mediaUrl,
-        segment: item.segment,
-        cacheDir: item.cacheDir,
-        priority: newPriority,
-        cancelToken: item.cancelToken,
-        onComplete: item.onComplete,
-        onProgress: item.onProgress,
-      ));
+      _insertByPriority(
+        _DownloadItem(
+          mediaUrl: item.mediaUrl,
+          segment: item.segment,
+          cacheDir: item.cacheDir,
+          priority: newPriority,
+          cancelToken: item.cancelToken,
+          onComplete: item.onComplete,
+          onProgress: item.onProgress,
+        ),
+      );
     }
 
-    log(() =>
-        'Boosted priority for $mediaUrl to $newPriority (${items.length} items)');
+    log(
+      () =>
+          'Boosted priority for $mediaUrl to $newPriority (${items.length} items)',
+    );
   }
 
   /// 降低特定媒体的优先级
   void _lowerPriority(String mediaUrl, int newPriority) {
-    final items =
-        _pendingQueue.where((item) => item.mediaUrl == mediaUrl).toList();
+    final items = _pendingQueue
+        .where((item) => item.mediaUrl == mediaUrl)
+        .toList();
 
     _pendingQueue.removeWhere((item) => item.mediaUrl == mediaUrl);
 
     for (final item in items) {
-      _insertByPriority(_DownloadItem(
-        mediaUrl: item.mediaUrl,
-        segment: item.segment,
-        cacheDir: item.cacheDir,
-        priority: newPriority,
-        cancelToken: item.cancelToken,
-        onComplete: item.onComplete,
-        onProgress: item.onProgress,
-      ));
+      _insertByPriority(
+        _DownloadItem(
+          mediaUrl: item.mediaUrl,
+          segment: item.segment,
+          cacheDir: item.cacheDir,
+          priority: newPriority,
+          cancelToken: item.cancelToken,
+          onComplete: item.onComplete,
+          onProgress: item.onProgress,
+        ),
+      );
     }
 
-    log(() =>
-        'Lowered priority for $mediaUrl to $newPriority (${items.length} items)');
+    log(
+      () =>
+          'Lowered priority for $mediaUrl to $newPriority (${items.length} items)',
+    );
   }
 
   /// 取消特定媒体的所有下载任务
   void cancelMedia(String mediaUrl, {bool cancelActive = true}) {
-    final removedCount =
-        _pendingQueue.where((item) => item.mediaUrl == mediaUrl).length;
+    final toCancel = _pendingQueue
+        .where((item) => item.mediaUrl == mediaUrl)
+        .toList();
     _pendingQueue.removeWhere((item) => item.mediaUrl == mediaUrl);
+
+    for (final item in toCancel) {
+      item.onComplete?.call(false);
+    }
 
     if (cancelActive) {
       _activeDownloads.forEach((key, item) {
@@ -226,8 +258,10 @@ class GlobalDownloadQueue {
       });
     }
 
-    log(() =>
-        'Cancelled downloads for $mediaUrl (removed $removedCount from queue)');
+    log(
+      () =>
+          'Cancelled downloads for $mediaUrl (removed ${toCancel.length} from queue)',
+    );
   }
 
   /// 取消所有非当前播放媒体的下载
@@ -281,7 +315,22 @@ class GlobalDownloadQueue {
         break;
       }
 
+      // 🔑 独占期逻辑：如果存在活跃的起播锁，且当前排队的第一项不是高优任务，则暂停处理
+      // 优化：阈值降至 150，允许 moov 分片在独占期内下载，防止 MP4 播放死锁
+      if (_startupLocks.isNotEmpty) {
+        final firstItem = _pendingQueue.firstOrNull;
+        if (firstItem != null &&
+            firstItem.priority < (kPriorityPlayingUrgent - 50)) {
+          log(
+            () =>
+                'Startup locked by ${_startupLocks.keys.first}, skipping non-urgent task (priority: ${firstItem.priority})',
+          );
+          break;
+        }
+      }
+
       final item = _pendingQueue.firstOrNull;
+
       if (item == null) break;
 
       final mediaActiveCount = _mediaActiveCount[item.mediaUrl] ?? 0;
@@ -295,6 +344,7 @@ class GlobalDownloadQueue {
 
       if (item.isCancelled) {
         _pendingQueue.removeFirst();
+        item.onComplete?.call(false);
         continue;
       }
 
@@ -321,6 +371,25 @@ class GlobalDownloadQueue {
     return null;
   }
 
+  /// 增加或减少起播独占锁
+  void updateStartupLock(String mediaUrl, bool add) {
+    if (add) {
+      _startupLocks[mediaUrl] = (_startupLocks[mediaUrl] ?? 0) + 1;
+    } else {
+      final count = (_startupLocks[mediaUrl] ?? 0) - 1;
+      if (count <= 0) {
+        _startupLocks.remove(mediaUrl);
+      } else {
+        _startupLocks[mediaUrl] = count;
+      }
+    }
+    log(
+      () =>
+          'Startup lock count for $mediaUrl: ${_startupLocks[mediaUrl] ?? 0} (Total locks: ${_startupLocks.length})',
+    );
+    _processQueue();
+  }
+
   /// 开始下载任务
   Future<void> _startDownload(_DownloadItem item) async {
     final key = '${item.mediaUrl}_${item.segment.startByte}';
@@ -328,8 +397,11 @@ class GlobalDownloadQueue {
     _mediaActiveCount[item.mediaUrl] =
         (_mediaActiveCount[item.mediaUrl] ?? 0) + 1;
 
-    log(() => 'Starting download: ${item.segment.startByte ~/ 1024 ~/ 1024}MB '
-        '(active: ${_activeDownloads.length}/$kGlobalMaxConcurrentDownloads)');
+    log(
+      () =>
+          'Starting download: ${item.segment.startByte ~/ 1024 ~/ 1024}MB '
+          '(active: ${_activeDownloads.length}/$kGlobalMaxConcurrentDownloads)',
+    );
 
     unawaited(_executeDownload(item, key));
   }
@@ -352,11 +424,14 @@ class GlobalDownloadQueue {
 
       // 磁盘空间不足时，触发紧急清理
       if (e is FileSystemException && e.message.contains('No space')) {
-        log(() =>
-            'CRITICAL: Disk full detected! Triggering emergency cleanup...');
-        unawaited(MediaDownloadManager().cleanupCacheLRU(
-          kDefaultMaxCacheSize ~/ 2, // 紧急情况下清理到 50%
-        ));
+        log(
+          () => 'CRITICAL: Disk full detected! Triggering emergency cleanup...',
+        );
+        unawaited(
+          MediaDownloadManager().cleanupCacheLRU(
+            kDefaultMaxCacheSize ~/ 2, // 紧急情况下清理到 50%
+          ),
+        );
       }
     } finally {
       _activeDownloads.remove(key);

@@ -180,8 +180,9 @@ class MediaCacheProxy {
     if (task.needsMoovOptimization &&
         task.moovAtStart == false &&
         session.rangeStart == 0) {
-      log(() =>
-          '[${session.sessionId}] MP4 moov at end detected, preloading...');
+      log(
+        () => '[${session.sessionId}] MP4 moov at end detected, preloading...',
+      );
       unawaited(task.preloadMoovSegment());
     }
 
@@ -198,8 +199,10 @@ class MediaCacheProxy {
 
     log(() => '[${session.sessionId}] Response headers set');
 
-    final segments =
-        task.getSegmentsForRange(session.rangeStart, session.rangeEnd);
+    final segments = task.getSegmentsForRange(
+      session.rangeStart,
+      session.rangeEnd,
+    );
     log(() => '[${session.sessionId}] Segments needed: ${segments.length}');
 
     _startDownloadsForSession(session, segments);
@@ -214,7 +217,9 @@ class MediaCacheProxy {
 
   /// 为会话启动下载
   void _startDownloadsForSession(
-      PlayerSession session, List<MediaSegment> segments) {
+    PlayerSession session,
+    List<MediaSegment> segments,
+  ) {
     final needDownload = segments.where((s) => s.canStartDownload).toList();
     final fileSize = session.task.contentLength;
     final allSegments = session.task.segments;
@@ -226,8 +231,10 @@ class MediaCacheProxy {
       endSegment = allSegments.last;
       if (endSegment.canStartDownload && !needDownload.contains(endSegment)) {
         needDownload.add(endSegment);
-        log(() =>
-            '[${session.sessionId}] End segment added for preload: $endSegment');
+        log(
+          () =>
+              '[${session.sessionId}] End segment added for preload: $endSegment',
+        );
       }
     }
 
@@ -239,8 +246,10 @@ class MediaCacheProxy {
         final nextRangeStart = lastRequestedSegment.endByte + 1;
         final nextRangeEnd = nextRangeStart + (kDefaultSegmentSize * 2);
 
-        final extraSegments =
-            session.task.getSegmentsForRange(nextRangeStart, nextRangeEnd);
+        final extraSegments = session.task.getSegmentsForRange(
+          nextRangeStart,
+          nextRangeEnd,
+        );
         for (final seg in extraSegments) {
           if (seg.canStartDownload && !needDownload.contains(seg)) {
             needDownload.add(seg);
@@ -267,23 +276,28 @@ class MediaCacheProxy {
     // 🔑 识别关键分片
     // 1. 第一播放分片 = 包含 rangeStart 的分片（播放必需）
     // 2. 末尾分片 = 文件末尾的分片（MP4 的 moov 或其他格式的结尾数据）
-    final firstPlaybackSegment =
-        needDownload.isNotEmpty ? needDownload.first : null;
+    final firstPlaybackSegment = needDownload.isNotEmpty
+        ? needDownload.first
+        : null;
 
     // 重新查找末尾分片（可能已经在 needDownload 中）
     MediaSegment? moovSegment;
     if (fileSize > 0) {
       moovSegment = needDownload.cast<MediaSegment?>().firstWhere(
-            (s) => s != null && s.endByte >= fileSize - 1,
-            orElse: () => null,
-          );
+        (s) => s != null && s.endByte >= fileSize - 1,
+        orElse: () => null,
+      );
     }
 
-    log(() =>
-        '[${session.sessionId}] Enqueuing ${needDownload.length} segments to global queue');
+    log(
+      () =>
+          '[${session.sessionId}] Enqueuing ${needDownload.length} segments to global queue',
+    );
     if (firstPlaybackSegment != null) {
-      log(() =>
-          '[${session.sessionId}] First playback segment: $firstPlaybackSegment');
+      log(
+        () =>
+            '[${session.sessionId}] First playback segment: $firstPlaybackSegment',
+      );
     }
     if (moovSegment != null && moovSegment != firstPlaybackSegment) {
       log(() => '[${session.sessionId}] Moov segment: $moovSegment');
@@ -305,8 +319,10 @@ class MediaCacheProxy {
 
       // 如果还没首帧，且不是关键分片，暂时不排队，集中火力
       if (!hasAnyCompleted && !isUrgent) {
-        log(() =>
-            '[${session.sessionId}] Skipping prefetch for startup performance: $segment');
+        log(
+          () =>
+              '[${session.sessionId}] Skipping prefetch for startup performance: $segment',
+        );
         continue;
       }
 
@@ -314,6 +330,8 @@ class MediaCacheProxy {
       int priority;
       if (isFirstPlayback) {
         priority = kPriorityPlayingUrgent; // 200
+        // 🔑 触发起播独占期：增加计数锁
+        GlobalDownloadQueue().updateStartupLock(session.task.mediaUrl, true);
       } else if (isEndSegment) {
         priority = kPriorityPlayingUrgent - 50; // 150
       } else {
@@ -327,12 +345,22 @@ class MediaCacheProxy {
         priority: priority,
         cancelToken: () => session.isClosed || session.task.isCancelled,
         onProgress: (bytes) {
-          session.task
-              .updateSegmentStatus(segment, SegmentStatus.downloading, bytes);
+          session.task.updateSegmentStatus(
+            segment,
+            SegmentStatus.downloading,
+            bytes,
+          );
         },
         onComplete: (success) {
           if (success) {
             session.task.updateSegmentStatus(segment, SegmentStatus.completed);
+          }
+          // 🔑 如果是起播分片，释放计数锁
+          if (isFirstPlayback) {
+            GlobalDownloadQueue().updateStartupLock(
+              session.task.mediaUrl,
+              false,
+            );
           }
         },
       );
@@ -341,7 +369,9 @@ class MediaCacheProxy {
 
   /// 流式输出到播放器
   Future<void> _streamToPlayer(
-      PlayerSession session, List<MediaSegment> segments) async {
+    PlayerSession session,
+    List<MediaSegment> segments,
+  ) async {
     final response = session.request.response;
     int currentPosition = session.rangeStart;
     final endPosition = session.rangeEnd;
@@ -440,21 +470,26 @@ class MediaCacheProxy {
         if (segment.isCompleted) {
           // 🔑 修复：分片标记完成但数据不足，验证文件完整性
           final actualFile = await file.exists() ? file : tempFile;
-          final actualSize =
-              await actualFile.exists() ? await actualFile.length() : 0;
+          final actualSize = await actualFile.exists()
+              ? await actualFile.length()
+              : 0;
           final neededSize = fileOffset + bytesToRead;
 
           if (actualSize < neededSize) {
             // 文件确实不完整
             if (redownloadAttempts >= maxRedownloadAttempts) {
-              log(() =>
-                  '[${session.sessionId}] Segment still incomplete after $maxRedownloadAttempts attempts, giving up: $segment');
+              log(
+                () =>
+                    '[${session.sessionId}] Segment still incomplete after $maxRedownloadAttempts attempts, giving up: $segment',
+              );
               break;
             }
 
             redownloadAttempts++;
-            log(() =>
-                '[${session.sessionId}] Segment file incomplete (have: $actualSize, need: $neededSize), re-downloading (attempt $redownloadAttempts): $segment');
+            log(
+              () =>
+                  '[${session.sessionId}] Segment file incomplete (have: $actualSize, need: $neededSize), re-downloading (attempt $redownloadAttempts): $segment',
+            );
             segment.updateStatus(SegmentStatus.failed);
 
             // 触发重新下载
@@ -476,9 +511,9 @@ class MediaCacheProxy {
 
             // 等待重下载完成
             await segment.waitForData().timeout(
-                  const Duration(seconds: 15),
-                  onTimeout: () {},
-                );
+              const Duration(seconds: 15),
+              onTimeout: () {},
+            );
             continue;
           } else {
             // 文件完整但读取位置有问题，尝试继续读取
@@ -489,9 +524,9 @@ class MediaCacheProxy {
 
         // 等待更多数据
         await segment.waitForData().timeout(
-              const Duration(milliseconds: 500),
-              onTimeout: () {},
-            );
+          const Duration(milliseconds: 500),
+          onTimeout: () {},
+        );
       }
     }
   }
@@ -649,8 +684,9 @@ class MediaCacheProxy {
 
   /// 清理缓存
   static Future<void> cleanupCache({int? maxSize}) async {
-    await instance._downloadManager
-        .cleanupCacheLRU(maxSize ?? kDefaultMaxCacheSize);
+    await instance._downloadManager.cleanupCacheLRU(
+      maxSize ?? kDefaultMaxCacheSize,
+    );
   }
 
   /// 删除指定媒体缓存
@@ -721,8 +757,8 @@ class MediaCacheProxy {
         'mediaCount': mediaCount,
         'maxSize': kDefaultMaxCacheSize,
         'maxSizeMB': (kDefaultMaxCacheSize / 1024 / 1024).toStringAsFixed(0),
-        'usagePercent':
-            ((totalSize / kDefaultMaxCacheSize) * 100).toStringAsFixed(1),
+        'usagePercent': ((totalSize / kDefaultMaxCacheSize) * 100)
+            .toStringAsFixed(1),
       };
     } catch (e) {
       log(() => 'Failed to get cache stats: $e');
