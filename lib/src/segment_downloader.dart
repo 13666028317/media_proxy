@@ -36,8 +36,10 @@ class SegmentDownloader {
         );
         if (result) return true;
       } catch (e) {
-        log(() =>
-            'Download attempt ${retryCount + 1}/$kDownloadRetryCount failed: $e');
+        log(
+          () =>
+              'Download attempt ${retryCount + 1}/$kDownloadRetryCount failed: $e',
+        );
       }
 
       retryCount++;
@@ -61,7 +63,13 @@ class SegmentDownloader {
     final tempFile = segment.getTempFile(cacheDir);
     final finalFile = segment.getSegmentFile(cacheDir);
 
-    // 检查是否已下载完成
+    // 🔑 防止并发下载：如果分片已经完成，直接返回
+    if (segment.isCompleted) {
+      log(() => 'Segment already marked completed, skipping: $segment');
+      return true;
+    }
+
+    // 检查是否已下载完成（通过文件验证）
     if (await finalFile.exists()) {
       final fileSize = await finalFile.length();
       if (fileSize >= segment.expectedSize) {
@@ -117,7 +125,10 @@ class SegmentDownloader {
       int totalDownloaded = existingBytes;
       int chunkCount = 0;
 
-      await for (final chunk in response) {
+      // 读超时：切换网络后旧连接可能挂起不报错，超时后抛 TimeoutException 以便重试并释放槽位
+      final timeoutDuration = Duration(seconds: kHttpStreamReadTimeoutSeconds);
+
+      await for (final chunk in response.timeout(timeoutDuration)) {
         if (cancelToken?.call() == true) {
           log(() => 'Download cancelled: $segment');
           await raf?.flush();
@@ -159,12 +170,30 @@ class SegmentDownloader {
       await raf?.close();
       raf = null;
 
+      // 🔑 必须校验：只有写满预期字节才标记完成，否则末尾分片会缺数据导致“最后几秒播不到”
+      if (totalDownloaded < segment.expectedSize) {
+        log(
+          () =>
+              'Segment incomplete: got $totalDownloaded, need ${segment.expectedSize}, will retry: $segment',
+        );
+        segment.downloadedBytes = totalDownloaded;
+        segment.updateStatus(SegmentStatus.failed);
+        return false;
+      }
+
       await _finalizeDownload(tempFile, finalFile, segment);
 
       log(() => 'Segment completed: $segment');
       return true;
     } catch (e) {
-      log(() => 'Download error: $e');
+      if (e is TimeoutException) {
+        log(
+          () =>
+              'Stream read timeout (no data for ${kHttpStreamReadTimeoutSeconds}s), may be network switch: $segment',
+        );
+      } else {
+        log(() => 'Download error: $e');
+      }
       segment.updateStatus(SegmentStatus.failed);
       return false;
     } finally {
@@ -180,16 +209,51 @@ class SegmentDownloader {
     MediaSegment segment,
   ) async {
     try {
+      // 🔑 处理并发下载：如果 finalFile 已存在且大小正确，说明另一个下载已完成
+      if (await finalFile.exists()) {
+        final finalSize = await finalFile.length();
+        if (finalSize >= segment.expectedSize) {
+          log(() =>
+              'Segment already finalized by another download: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+          segment.downloadedBytes = finalSize;
+          segment.updateStatus(SegmentStatus.completed);
+          segment.notifyDataAvailable();
+          // 清理可能存在的 tempFile
+          if (await tempFile.exists()) {
+            try {
+              await tempFile.delete();
+            } catch (_) {}
+          }
+          return;
+        }
+      }
+
       if (await tempFile.exists()) {
+        // 🔑 最终验证：确保文件大小正确
+        final tempSize = await tempFile.length();
+        if (tempSize < segment.expectedSize) {
+          log(() =>
+              'Final validation failed: file size $tempSize < expected ${segment.expectedSize}');
+          segment.updateStatus(SegmentStatus.failed);
+          return;
+        }
+
         // 如果目标文件已存在，先删除
         if (await finalFile.exists()) {
           await finalFile.delete();
         }
         await tempFile.rename(finalFile.path);
-      }
 
-      segment.updateStatus(SegmentStatus.completed);
-      segment.notifyDataAvailable();
+        // 确保 downloadedBytes 正确
+        segment.downloadedBytes = segment.expectedSize;
+        segment.updateStatus(SegmentStatus.completed);
+        segment.notifyDataAvailable();
+      } else {
+        // tempFile 不存在，检查 finalFile 是否已被另一个下载处理
+        log(() =>
+            'Temp file not found, segment may have been finalized elsewhere');
+        // 不标记为 completed，让调用方处理
+      }
     } catch (e) {
       log(() => 'Error finalizing download: $e');
       rethrow;

@@ -83,6 +83,32 @@ class GlobalDownloadQueue {
     void Function(bool success)? onComplete,
     void Function(int bytes)? onProgress,
   }) {
+    // 🔑 防止重复入队：检查分片是否已完成、正在下载、或已在队列中
+    if (segment.isCompleted) {
+      log(() =>
+          'Skip enqueue: segment already completed: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      onComplete?.call(true);
+      return;
+    }
+
+    if (segment.isDownloading) {
+      log(() =>
+          'Skip enqueue: segment already downloading: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      return;
+    }
+
+    // 检查是否已在队列中
+    final key = '${mediaUrl}_${segment.startByte}';
+    final alreadyInQueue =
+        _pendingQueue.any((item) => item.mediaUrl == mediaUrl && item.segment.startByte == segment.startByte);
+    final alreadyActive = _activeDownloads.containsKey(key);
+
+    if (alreadyInQueue || alreadyActive) {
+      log(() =>
+          'Skip enqueue: segment already in queue/active: ${segment.startByte ~/ 1024 ~/ 1024}MB');
+      return;
+    }
+
     // 🔑 修复：当前播放媒体时，使用传入优先级和 kPriorityPlaying 的较大值
     // 这样 kPriorityPlayingUrgent(200) 不会被降级为 kPriorityPlaying(100)
     final actualPriority = (mediaUrl == _currentPlayingUrl)

@@ -86,6 +86,9 @@ const int kHttpResponseTimeoutMs = 15000;
 /// HttpClient 空闲连接超时（秒）
 const int kHttpIdleTimeoutSeconds = 30;
 
+/// 响应流读超时（秒）- 若在此时间内未收到新数据则视为网络异常并重试（如切换网络后连接挂起）
+const int kHttpStreamReadTimeoutSeconds = 15;
+
 /// MP4 相关的 MIME 类型
 const Set<String> kMp4MimeTypes = {
   'video/mp4',

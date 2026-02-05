@@ -216,20 +216,36 @@ class MediaCacheProxy {
   void _startDownloadsForSession(
       PlayerSession session, List<MediaSegment> segments) {
     final needDownload = segments.where((s) => s.canStartDownload).toList();
+    final fileSize = session.task.contentLength;
+    final allSegments = session.task.segments;
+
+    // 🔑 关键修复：无论请求范围如何，总是确保末尾分片被预加载
+    // 因为播放器可能先请求开头，然后 seek 到末尾，或者播放到最后需要末尾数据
+    MediaSegment? endSegment;
+    if (fileSize > 0 && allSegments.isNotEmpty) {
+      endSegment = allSegments.last;
+      if (endSegment.canStartDownload && !needDownload.contains(endSegment)) {
+        needDownload.add(endSegment);
+        log(() =>
+            '[${session.sessionId}] End segment added for preload: $endSegment');
+      }
+    }
 
     // 🔑 优化：激进预取策略
     // 除了请求的分片，额外预加载后续 2 个分片，以利用并发带宽
-    final lastRequestedSegment = segments.last;
-    if (lastRequestedSegment.endByte < session.task.contentLength - 1) {
-      final nextRangeStart = lastRequestedSegment.endByte + 1;
-      final nextRangeEnd = nextRangeStart + (kDefaultSegmentSize * 2);
+    if (segments.isNotEmpty) {
+      final lastRequestedSegment = segments.last;
+      if (lastRequestedSegment.endByte < fileSize - 1) {
+        final nextRangeStart = lastRequestedSegment.endByte + 1;
+        final nextRangeEnd = nextRangeStart + (kDefaultSegmentSize * 2);
 
-      final extraSegments =
-          session.task.getSegmentsForRange(nextRangeStart, nextRangeEnd);
-      for (final seg in extraSegments) {
-        if (seg.canStartDownload && !needDownload.contains(seg)) {
-          needDownload.add(seg);
-          log(() => '[${session.sessionId}] Aggressive prefetch added: $seg');
+        final extraSegments =
+            session.task.getSegmentsForRange(nextRangeStart, nextRangeEnd);
+        for (final seg in extraSegments) {
+          if (seg.canStartDownload && !needDownload.contains(seg)) {
+            needDownload.add(seg);
+            log(() => '[${session.sessionId}] Aggressive prefetch added: $seg');
+          }
         }
       }
     }
@@ -250,11 +266,11 @@ class MediaCacheProxy {
 
     // 🔑 识别关键分片
     // 1. 第一播放分片 = 包含 rangeStart 的分片（播放必需）
-    // 2. moov 分片 = 文件末尾的分片（MP4 元数据，也是播放必需）
+    // 2. 末尾分片 = 文件末尾的分片（MP4 的 moov 或其他格式的结尾数据）
     final firstPlaybackSegment =
         needDownload.isNotEmpty ? needDownload.first : null;
 
-    final fileSize = session.task.contentLength;
+    // 重新查找末尾分片（可能已经在 needDownload 中）
     MediaSegment? moovSegment;
     if (fileSize > 0) {
       moovSegment = needDownload.cast<MediaSegment?>().firstWhere(
@@ -273,7 +289,7 @@ class MediaCacheProxy {
       log(() => '[${session.sessionId}] Moov segment: $moovSegment');
     }
 
-    final hasAnyCompleted = session.task.segments.any((s) => s.isCompleted);
+    final hasAnyCompleted = allSegments.any((s) => s.isCompleted);
     final queue = GlobalDownloadQueue();
 
     for (int i = 0; i < needDownload.length; i++) {
@@ -281,12 +297,11 @@ class MediaCacheProxy {
 
       // 🔑 修复：正确识别关键分片
       // - 第一播放分片：最高优先级 (200)
-      // - moov 分片：次高优先级 (150)，但必须下载
-      // - 其他分片：普通优先级 (100)，首屏加载时跳过
+      // - 末尾分片（moov/结尾数据）：次高优先级 (150)，必须下载
+      // - 其他分片：普通优先级 (100)，首屏加载时可跳过
       final isFirstPlayback = segment == firstPlaybackSegment;
-      final isMoov =
-          segment == moovSegment && moovSegment != firstPlaybackSegment;
-      final isUrgent = isFirstPlayback || isMoov;
+      final isEndSegment = segment == moovSegment || segment == endSegment;
+      final isUrgent = isFirstPlayback || isEndSegment;
 
       // 如果还没首帧，且不是关键分片，暂时不排队，集中火力
       if (!hasAnyCompleted && !isUrgent) {
@@ -295,11 +310,11 @@ class MediaCacheProxy {
         continue;
       }
 
-      // 优先级：第一播放分片 > moov 分片 > 其他
+      // 优先级：第一播放分片 > 末尾分片 > 其他
       int priority;
       if (isFirstPlayback) {
         priority = kPriorityPlayingUrgent; // 200
-      } else if (isMoov) {
+      } else if (isEndSegment) {
         priority = kPriorityPlayingUrgent - 50; // 150
       } else {
         priority = kPriorityPlaying; // 100
@@ -368,6 +383,8 @@ class MediaCacheProxy {
     final fileOffset = readStart - segment.startByte;
     final bytesToRead = readEnd - readStart + 1;
     int bytesWritten = 0;
+    int redownloadAttempts = 0; // 重下载重试计数
+    const maxRedownloadAttempts = 3;
 
     while (bytesWritten < bytesToRead && !session.isClosed) {
       File? availableFile;
@@ -421,15 +438,59 @@ class MediaCacheProxy {
 
       if (bytesWritten < bytesToRead) {
         if (segment.isCompleted) {
-          log(() =>
-              '[${session.sessionId}] Segment completed but not enough data');
-          break;
+          // 🔑 修复：分片标记完成但数据不足，验证文件完整性
+          final actualFile = await file.exists() ? file : tempFile;
+          final actualSize =
+              await actualFile.exists() ? await actualFile.length() : 0;
+          final neededSize = fileOffset + bytesToRead;
+
+          if (actualSize < neededSize) {
+            // 文件确实不完整
+            if (redownloadAttempts >= maxRedownloadAttempts) {
+              log(() =>
+                  '[${session.sessionId}] Segment still incomplete after $maxRedownloadAttempts attempts, giving up: $segment');
+              break;
+            }
+
+            redownloadAttempts++;
+            log(() =>
+                '[${session.sessionId}] Segment file incomplete (have: $actualSize, need: $neededSize), re-downloading (attempt $redownloadAttempts): $segment');
+            segment.updateStatus(SegmentStatus.failed);
+
+            // 触发重新下载
+            GlobalDownloadQueue().enqueue(
+              mediaUrl: session.task.mediaUrl,
+              segment: segment,
+              cacheDir: session.task.cacheDir,
+              priority: kPriorityPlayingUrgent,
+              cancelToken: () => session.isClosed,
+              onProgress: (bytes) {
+                segment.downloadedBytes = bytes;
+              },
+              onComplete: (success) {
+                if (success) {
+                  segment.updateStatus(SegmentStatus.completed);
+                }
+              },
+            );
+
+            // 等待重下载完成
+            await segment.waitForData().timeout(
+                  const Duration(seconds: 15),
+                  onTimeout: () {},
+                );
+            continue;
+          } else {
+            // 文件完整但读取位置有问题，尝试继续读取
+            await Future.delayed(const Duration(milliseconds: 50));
+            continue;
+          }
         }
 
-        // 🔑 优化：使用通知机制替代轮询
+        // 等待更多数据
         await segment.waitForData().timeout(
-              const Duration(milliseconds: 1000),
-              onTimeout: () {}, // 超时则进入下一次循环再次检查文件
+              const Duration(milliseconds: 500),
+              onTimeout: () {},
             );
       }
     }

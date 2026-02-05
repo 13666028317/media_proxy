@@ -40,10 +40,7 @@ class MediaDownloadTask {
   bool _moovPreloaded = false;
   List<int>? _initialData;
 
-  MediaDownloadTask({
-    required this.mediaUrl,
-    required this.cacheDir,
-  });
+  MediaDownloadTask({required this.mediaUrl, required this.cacheDir});
 
   // Getters
   String get contentType =>
@@ -109,8 +106,9 @@ class MediaDownloadTask {
 
     log(() => 'Task initialized: $mediaUrl');
     log(() => '  Content-Type: $contentType');
-    log(() =>
-        '  Format: ${MediaFormatHelper.getFormatDescription(_contentType)}');
+    log(
+      () => '  Format: ${MediaFormatHelper.getFormatDescription(_contentType)}',
+    );
     log(() => '  Content-Length: $contentLength');
     log(() => '  Segments: ${_segments.length}');
     log(() => '  Completed: ${_segments.where((s) => s.isCompleted).length}');
@@ -140,8 +138,9 @@ class MediaDownloadTask {
       );
       _contentType = resolvedType;
 
-      final acceptRanges =
-          response.headers.value(HttpHeaders.acceptRangesHeader);
+      final acceptRanges = response.headers.value(
+        HttpHeaders.acceptRangesHeader,
+      );
       if (acceptRanges != 'bytes') {
         log(() => 'Server may not support Range requests');
       }
@@ -171,8 +170,9 @@ class MediaDownloadTask {
       final response = await request.close();
 
       if (response.statusCode == HttpStatus.partialContent) {
-        final contentRange =
-            response.headers.value(HttpHeaders.contentRangeHeader);
+        final contentRange = response.headers.value(
+          HttpHeaders.contentRangeHeader,
+        );
         if (contentRange != null) {
           final match = RegExp(r'/(\d+)$').firstMatch(contentRange);
           if (match != null) {
@@ -180,8 +180,9 @@ class MediaDownloadTask {
           }
         }
       } else if (response.statusCode == HttpStatus.ok) {
-        final lengthStr =
-            response.headers.value(HttpHeaders.contentLengthHeader);
+        final lengthStr = response.headers.value(
+          HttpHeaders.contentLengthHeader,
+        );
         if (lengthStr != null) {
           contentLength = int.tryParse(lengthStr) ?? -1;
         }
@@ -229,8 +230,9 @@ class MediaDownloadTask {
 
       if (_initialData != null && _initialData!.isNotEmpty) {
         _moovAtStart = _parseMoovPosition(_initialData!);
-        log(() =>
-            'Moov detection from initial data: moovAtStart=$_moovAtStart');
+        log(
+          () => 'Moov detection from initial data: moovAtStart=$_moovAtStart',
+        );
         _initialData = null;
         return;
       }
@@ -253,8 +255,9 @@ class MediaDownloadTask {
       // 原因：这会绕过全局队列控制，导致在首屏加载时抢占带宽，甚至引发死锁。
       // 策略：如果本地没有，直接假设 moov 在末尾 (_moovAtStart = false)，
       // 稍后由 preloadMoovSegment 在合适时机（避开首屏）去下载。
-      log(() =>
-          'Moov detection: local data insufficient, assuming moov at end.');
+      log(
+        () => 'Moov detection: local data insufficient, assuming moov at end.',
+      );
       _moovAtStart = false;
 
       /* 移除旧的危险网络请求代码
@@ -286,7 +289,8 @@ class MediaDownloadTask {
     int offset = 0;
 
     while (offset + 8 <= data.length) {
-      final size = (data[offset] << 24) |
+      final size =
+          (data[offset] << 24) |
           (data[offset + 1] << 16) |
           (data[offset + 2] << 8) |
           data[offset + 3];
@@ -314,26 +318,29 @@ class MediaDownloadTask {
     if (_segments.isEmpty || contentLength <= 0) return;
 
     final lastSegment = _segments.last;
-    if (lastSegment.isCompleted) {
+    // 已完成或正在下载，无需再入队
+    if (lastSegment.isCompleted || lastSegment.isDownloading) {
       _moovPreloaded = true;
       return;
     }
 
     log(() => 'Preloading moov segment: $lastSegment');
-    _moovPreloaded = true;
+    _moovPreloaded = true; // 标记已入队，避免重复入队
 
-    // 提交到下载队列
+    // 提交到下载队列，使用较高优先级确保 moov 快速下载
     GlobalDownloadQueue().enqueue(
       mediaUrl: mediaUrl,
       segment: lastSegment,
       cacheDir: cacheDir,
-      priority: kPriorityPreload,
+      priority: kPriorityPlayingUrgent - 50, // 150，仅次于首帧分片
       onProgress: (bytes) {
         updateSegmentStatus(lastSegment, SegmentStatus.downloading, bytes);
       },
       onComplete: (success) {
         if (success) {
           updateSegmentStatus(lastSegment, SegmentStatus.completed);
+        } else {
+          _moovPreloaded = false; // 失败则允许重试
         }
       },
     );
@@ -365,8 +372,9 @@ class MediaDownloadTask {
           if (segmentsJson != null) {
             _segments.clear();
             for (final segJson in segmentsJson) {
-              final seg =
-                  MediaSegment.fromJson(segJson as Map<String, dynamic>);
+              final seg = MediaSegment.fromJson(
+                segJson as Map<String, dynamic>,
+              );
               _segments.add(seg);
             }
             _segments.sort((a, b) => a.startByte.compareTo(b.startByte));
@@ -375,8 +383,10 @@ class MediaDownloadTask {
             final pending = _segments
                 .where((s) => s.status == SegmentStatus.pending)
                 .length;
-            log(() =>
-                'Config loaded: ${_segments.length} segments (completed: $completed, pending: $pending)');
+            log(
+              () =>
+                  'Config loaded: ${_segments.length} segments (completed: $completed, pending: $pending)',
+            );
           }
         }
       }
@@ -478,8 +488,10 @@ class MediaDownloadTask {
     // 检查分片数量限制
     final estimatedSegments = (contentLength / kDefaultSegmentSize).ceil();
     if (estimatedSegments > kMaxSegmentCount) {
-      log(() =>
-          'Warning: Estimated segment count ($estimatedSegments) exceeds limit ($kMaxSegmentCount)');
+      log(
+        () =>
+            'Warning: Estimated segment count ($estimatedSegments) exceeds limit ($kMaxSegmentCount)',
+      );
     }
 
     int offset = 0;
@@ -534,8 +546,11 @@ class MediaDownloadTask {
   }
 
   /// 更新分片状态（关键状态立即保存）
-  void updateSegmentStatus(MediaSegment segment, SegmentStatus status,
-      [int? downloadedBytes]) {
+  void updateSegmentStatus(
+    MediaSegment segment,
+    SegmentStatus status, [
+    int? downloadedBytes,
+  ]) {
     segment.updateStatus(status);
     if (downloadedBytes != null) {
       segment.downloadedBytes = downloadedBytes;
