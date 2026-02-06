@@ -5,7 +5,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'constants.dart';
+import 'config.dart';
 import 'enums.dart';
 import 'media_segment.dart';
 import 'utils.dart';
@@ -24,9 +24,9 @@ class SegmentDownloader {
     bool Function()? cancelToken,
   }) async {
     int retryCount = 0;
-    int delay = kDownloadRetryInitialDelayMs;
+    int delay = MediaProxyConfig.instance.downloadRetryInitialDelayMs;
 
-    while (retryCount < kDownloadRetryCount) {
+    while (retryCount < MediaProxyConfig.instance.downloadRetryCount) {
       try {
         final result = await _downloadSegmentInternal(
           mediaUrl: mediaUrl,
@@ -40,12 +40,12 @@ class SegmentDownloader {
       } catch (e) {
         log(
           () =>
-              'Download attempt ${retryCount + 1}/$kDownloadRetryCount failed: $e',
+              'Download attempt ${retryCount + 1}/${MediaProxyConfig.instance.downloadRetryCount} failed: $e',
         );
       }
 
       retryCount++;
-      if (retryCount < kDownloadRetryCount) {
+      if (retryCount < MediaProxyConfig.instance.downloadRetryCount) {
         await Future.delayed(Duration(milliseconds: delay));
         delay *= 2;
       }
@@ -136,7 +136,9 @@ class SegmentDownloader {
       int chunkCount = 0;
 
       // 读超时：切换网络后旧连接可能挂起不报错，超时后抛 TimeoutException 以便重试并释放槽位
-      final timeoutDuration = Duration(seconds: kHttpStreamReadTimeoutSeconds);
+      final timeoutDuration = Duration(
+        seconds: MediaProxyConfig.instance.httpStreamReadTimeoutSeconds,
+      );
 
       await for (final chunk in response.timeout(timeoutDuration)) {
         if (cancelToken?.call() == true) {
@@ -199,7 +201,7 @@ class SegmentDownloader {
       if (e is TimeoutException) {
         log(
           () =>
-              'Stream read timeout (no data for ${kHttpStreamReadTimeoutSeconds}s), may be network switch: $segment',
+              'Stream read timeout (no data for ${MediaProxyConfig.instance.httpStreamReadTimeoutSeconds}s), may be network switch: $segment',
         );
       } else {
         log(() => 'Download error: $e');

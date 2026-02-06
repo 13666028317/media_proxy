@@ -10,7 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'cache_strategy.dart';
-import 'constants.dart';
+import 'config.dart';
 import 'download_queue.dart';
 import 'download_task.dart';
 import 'utils.dart';
@@ -74,7 +74,7 @@ class MediaDownloadManager {
 
     try {
       // 自动缓存清理
-      if (kEnableAutoCacheCleanup) {
+      if (MediaProxyConfig.instance.enableAutoCacheCleanup) {
         await _autoCleanupIfNeeded();
       }
 
@@ -112,12 +112,12 @@ class MediaDownloadManager {
 
       // 2. 清理缓存大小
       final currentSize = await getCacheSize();
-      if (currentSize > kDefaultMaxCacheSize) {
+      if (currentSize > MediaProxyConfig.instance.maxCacheSize) {
         log(
           () =>
-              'Cache size ($currentSize) exceeds limit ($kDefaultMaxCacheSize), cleaning...',
+              'Cache size ($currentSize) exceeds limit (${MediaProxyConfig.instance.maxCacheSize}), cleaning...',
         );
-        await cleanupCacheLRU(kDefaultMaxCacheSize);
+        await cleanupCacheLRU(MediaProxyConfig.instance.maxCacheSize);
       }
     } catch (e) {
       log(() => 'Auto cleanup failed: $e');

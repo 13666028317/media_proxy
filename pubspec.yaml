@@ -1,6 +1,6 @@
 name: media_proxy
 description: A Flutter package that provides a local HTTP proxy for caching and prefetching media files to improve playback performance.
-version: 0.0.4
+version: 0.0.5
 homepage: https://github.com/your-username/media_proxy # TODO: Replace with your actual repository URL
 
 environment:

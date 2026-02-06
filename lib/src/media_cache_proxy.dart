@@ -9,6 +9,7 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
+import 'config.dart';
 import 'constants.dart';
 import 'download_manager.dart';
 import 'download_queue.dart';
@@ -275,7 +276,8 @@ class MediaCacheProxy {
       final lastRequestedSegment = segments.last;
       if (lastRequestedSegment.endByte < fileSize - 1) {
         final nextRangeStart = lastRequestedSegment.endByte + 1;
-        final nextRangeEnd = nextRangeStart + (kDefaultSegmentSize * 2);
+        final nextRangeEnd =
+            nextRangeStart + (MediaProxyConfig.instance.segmentSize * 2);
 
         final extraSegments = session.task.getSegmentsForRange(
           nextRangeStart,
@@ -360,13 +362,13 @@ class MediaCacheProxy {
       // 优先级：第一播放分片 > 末尾分片 > 其他
       int priority;
       if (isFirstPlayback) {
-        priority = kPriorityPlayingUrgent; // 200
+        priority = MediaProxyConfig.instance.priorityPlayingUrgent; // 200
         // 🔑 触发起播独占期：增加计数锁
         GlobalDownloadQueue().updateStartupLock(session.task.mediaUrl, true);
       } else if (isEndSegment) {
-        priority = kPriorityPlayingUrgent - 50; // 150
+        priority = MediaProxyConfig.instance.priorityPlayingUrgent - 50; // 150
       } else {
-        priority = kPriorityPlaying; // 100
+        priority = MediaProxyConfig.instance.priorityPlaying; // 100
       }
 
       queue.enqueue(
@@ -617,7 +619,8 @@ class MediaCacheProxy {
 
       if (includeMoov && segments.length > 1) {
         final lastSegment = segments.last;
-        bool shouldPreloadEnd = kAlwaysPreloadEndSegment;
+        bool shouldPreloadEnd =
+            MediaProxyConfig.instance.alwaysPreloadEndSegment;
         String preloadReason = 'always preload end';
 
         if (task.isMp4Format && task.moovAtStart == false) {
@@ -651,7 +654,7 @@ class MediaCacheProxy {
           mediaUrl: mediaUrl,
           segment: segment,
           cacheDir: task.cacheDir,
-          priority: kPriorityPreload,
+          priority: MediaProxyConfig.instance.priorityPreload,
           onProgress: (bytes) {
             task.updateSegmentStatus(segment, SegmentStatus.downloading, bytes);
           },
@@ -732,7 +735,7 @@ class MediaCacheProxy {
   /// 清理缓存
   static Future<void> cleanupCache({int? maxSize}) async {
     await instance._downloadManager.cleanupCacheLRU(
-      maxSize ?? kDefaultMaxCacheSize,
+      maxSize ?? MediaProxyConfig.instance.maxCacheSize,
     );
   }
 
@@ -809,10 +812,12 @@ class MediaCacheProxy {
         'totalSize': totalSize,
         'totalSizeMB': (totalSize / 1024 / 1024).toStringAsFixed(2),
         'mediaCount': mediaCount,
-        'maxSize': kDefaultMaxCacheSize,
-        'maxSizeMB': (kDefaultMaxCacheSize / 1024 / 1024).toStringAsFixed(0),
-        'usagePercent': ((totalSize / kDefaultMaxCacheSize) * 100)
-            .toStringAsFixed(1),
+        'maxSize': MediaProxyConfig.instance.maxCacheSize,
+        'maxSizeMB': (MediaProxyConfig.instance.maxCacheSize / 1024 / 1024)
+            .toStringAsFixed(0),
+        'usagePercent':
+            ((totalSize / MediaProxyConfig.instance.maxCacheSize) * 100)
+                .toStringAsFixed(1),
       };
     } catch (e) {
       log(() => 'Failed to get cache stats: $e');
@@ -820,8 +825,9 @@ class MediaCacheProxy {
         'totalSize': 0,
         'totalSizeMB': '0',
         'mediaCount': 0,
-        'maxSize': kDefaultMaxCacheSize,
-        'maxSizeMB': (kDefaultMaxCacheSize / 1024 / 1024).toStringAsFixed(0),
+        'maxSize': MediaProxyConfig.instance.maxCacheSize,
+        'maxSizeMB': (MediaProxyConfig.instance.maxCacheSize / 1024 / 1024)
+            .toStringAsFixed(0),
         'usagePercent': '0',
       };
     }

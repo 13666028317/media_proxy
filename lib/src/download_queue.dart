@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
-import 'constants.dart';
+import 'config.dart';
 import 'download_manager.dart';
 import 'media_segment.dart';
 import 'segment_downloader.dart';
@@ -71,10 +71,12 @@ class GlobalDownloadQueue {
     );
 
     if (mediaUrl != null) {
-      _boostPriority(mediaUrl, kPriorityPlaying);
+      _boostPriority(mediaUrl, MediaProxyConfig.instance.priorityPlaying);
 
-      if (kPauseOldDownloadsOnSwitch && oldUrl != null && oldUrl != mediaUrl) {
-        _lowerPriority(oldUrl, kPriorityBackground);
+      if (MediaProxyConfig.instance.pauseOldDownloadsOnSwitch &&
+          oldUrl != null &&
+          oldUrl != mediaUrl) {
+        _lowerPriority(oldUrl, MediaProxyConfig.instance.priorityBackground);
       }
     }
 
@@ -87,7 +89,7 @@ class GlobalDownloadQueue {
     required MediaSegment segment,
     required Directory cacheDir,
     Map<String, String>? headers,
-    int priority = kPriorityBackground,
+    int? priority,
     bool Function()? cancelToken,
     void Function(bool success)? onComplete,
     void Function(int bytes)? onProgress,
@@ -129,9 +131,15 @@ class GlobalDownloadQueue {
 
     // 🔑 修复：当前播放媒体时，使用传入优先级和 kPriority Playing 的较大值
     // 这样 kPriorityPlayingUrgent(200) 不会被降级为 kPriorityPlaying(100)
+    final resolvedPriority =
+        priority ?? MediaProxyConfig.instance.priorityBackground;
+    final playingPriority = MediaProxyConfig.instance.priorityPlaying;
+
     final actualPriority = (mediaUrl == _currentPlayingUrl)
-        ? (priority > kPriorityPlaying ? priority : kPriorityPlaying)
-        : priority;
+        ? (resolvedPriority > playingPriority
+              ? resolvedPriority
+              : playingPriority)
+        : resolvedPriority;
 
     final item = _DownloadItem(
       mediaUrl: mediaUrl,
@@ -316,7 +324,8 @@ class GlobalDownloadQueue {
   /// 实际处理队列的逻辑
   Future<void> _doProcessQueue() async {
     while (_pendingQueue.isNotEmpty) {
-      if (_activeDownloads.length >= kGlobalMaxConcurrentDownloads) {
+      if (_activeDownloads.length >=
+          MediaProxyConfig.instance.globalMaxConcurrentDownloads) {
         break;
       }
 
@@ -325,7 +334,8 @@ class GlobalDownloadQueue {
       if (_startupLocks.isNotEmpty) {
         final firstItem = _pendingQueue.firstOrNull;
         if (firstItem != null &&
-            firstItem.priority < (kPriorityPlayingUrgent - 50)) {
+            firstItem.priority <
+                (MediaProxyConfig.instance.priorityPlayingUrgent - 50)) {
           log(
             () =>
                 'Startup locked by ${_startupLocks.keys.first}, skipping non-urgent task (priority: ${firstItem.priority})',
@@ -339,7 +349,8 @@ class GlobalDownloadQueue {
       if (item == null) break;
 
       final mediaActiveCount = _mediaActiveCount[item.mediaUrl] ?? 0;
-      if (mediaActiveCount >= kPerMediaMaxConcurrentDownloads) {
+      if (mediaActiveCount >=
+          MediaProxyConfig.instance.perMediaMaxConcurrentDownloads) {
         final nextItem = _findNextAvailableItem();
         if (nextItem == null) break;
         _pendingQueue.remove(nextItem);
@@ -368,7 +379,8 @@ class GlobalDownloadQueue {
   _DownloadItem? _findNextAvailableItem() {
     for (final item in _pendingQueue) {
       final mediaActiveCount = _mediaActiveCount[item.mediaUrl] ?? 0;
-      if (mediaActiveCount < kPerMediaMaxConcurrentDownloads &&
+      if (mediaActiveCount <
+              MediaProxyConfig.instance.perMediaMaxConcurrentDownloads &&
           !item.isCancelled) {
         return item;
       }
@@ -405,7 +417,7 @@ class GlobalDownloadQueue {
     log(
       () =>
           'Starting download: ${item.segment.startByte ~/ 1024 ~/ 1024}MB '
-          '(active: ${_activeDownloads.length}/$kGlobalMaxConcurrentDownloads)',
+          '(active: ${_activeDownloads.length}/${MediaProxyConfig.instance.globalMaxConcurrentDownloads})',
     );
 
     unawaited(_executeDownload(item, key));
@@ -435,7 +447,7 @@ class GlobalDownloadQueue {
         );
         unawaited(
           MediaDownloadManager().cleanupCacheLRU(
-            kDefaultMaxCacheSize ~/ 2, // 紧急情况下清理到 50%
+            MediaProxyConfig.instance.maxCacheSize ~/ 2, // 紧急情况下清理到 50%
           ),
         );
       }
@@ -462,7 +474,7 @@ class GlobalDownloadQueue {
     return {
       'pendingCount': _pendingQueue.length,
       'activeCount': _activeDownloads.length,
-      'globalMax': kGlobalMaxConcurrentDownloads,
+      'globalMax': MediaProxyConfig.instance.globalMaxConcurrentDownloads,
       'currentPlaying': _currentPlayingUrl,
       'mediaStats': mediaStats,
     };

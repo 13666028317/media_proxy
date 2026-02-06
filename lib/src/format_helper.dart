@@ -2,6 +2,7 @@
 // 媒体格式辅助类
 // =============================================================================
 
+import 'config.dart';
 import 'constants.dart';
 import 'utils.dart';
 
@@ -125,8 +126,9 @@ class MediaFormatHelper {
     }
 
     log(
-      () => 'Cannot determine MIME type, using default: $kDefaultContentType',
+      () =>
+          'Cannot determine MIME type, using default: ${MediaProxyConfig.instance.defaultContentType}',
     );
-    return kDefaultContentType;
+    return MediaProxyConfig.instance.defaultContentType;
   }
 }

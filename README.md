@@ -70,6 +70,41 @@ print('Cache size: ${stats['totalSizeMB']} MB');
 await MediaCacheProxy.clearCache();
 ```
 
+### Configuration
+
+The package now provides a centralized configuration system via `MediaProxyConfig` class. You can customize various parameters at runtime:
+
+```dart
+import 'package:media_proxy/media_proxy.dart';
+
+// Initialize configuration at app startup
+MediaProxyConfig.init(
+  segmentSize: 4 * 1024 * 1024, // 4MB segments
+  maxCacheSize: 1024 * 1024 * 1024, // 1GB cache limit
+  enableLogging: false,
+  maxConcurrentDownloads: 3,
+  httpConnectTimeoutMs: 10000,
+);
+
+// Update configuration dynamically
+MediaProxyConfig.update(
+  enableLogging: true,
+  maxConcurrentDownloads: 5,
+);
+
+// Access current configuration
+final config = MediaProxyConfig.instance;
+print('Segment size: ${config.segmentSize}');
+```
+
+Available configuration parameters include:
+- **Segment & Cache**: `segmentSize`, `maxCacheSize`, `cacheCleanupRatio`
+- **Concurrency**: `maxConcurrentDownloads`, `globalMaxConcurrentDownloads`
+- **Timeouts**: `httpConnectTimeoutMs`, `httpResponseTimeoutMs`, `httpStreamReadTimeoutSeconds`
+- **Moov Optimization**: `enableMoovDetection`, `moovDetectionBytes`
+- **Priority**: `priorityPlaying`, `priorityPlayingUrgent`, `priorityPreload`
+- **Retry**: `downloadRetryCount`, `downloadRetryInitialDelayMs`
+
 ## Additional information
 
 For more details on how the proxy works and how to customize the cache strategy, please refer to the documentation in the `lib/` directory.

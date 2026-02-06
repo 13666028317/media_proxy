@@ -9,7 +9,7 @@ import 'dart:math';
 
 import 'package:path/path.dart' as p;
 
-import 'constants.dart';
+import 'config.dart';
 import 'download_queue.dart';
 import 'enums.dart';
 import 'format_helper.dart';
@@ -51,14 +51,15 @@ class MediaDownloadTask {
   String get contentType =>
       _contentType ??
       MediaFormatHelper.inferMimeTypeFromUrl(mediaUrl) ??
-      kDefaultContentType;
+      MediaProxyConfig.instance.defaultContentType;
   set contentType(String value) =>
       _contentType = MediaFormatHelper.normalizeMimeType(value);
   bool get hasContentType => _contentType != null;
   bool get isMp4Format => MediaFormatHelper.isMp4Format(_contentType);
   bool get isVideoFormat => MediaFormatHelper.isVideoFormat(_contentType);
   bool get isAudioFormat => MediaFormatHelper.isAudioFormat(_contentType);
-  bool get needsMoovOptimization => kEnableMoovDetection && isMp4Format;
+  bool get needsMoovOptimization =>
+      MediaProxyConfig.instance.enableMoovDetection && isMp4Format;
   bool? get moovAtStart => _moovAtStart;
   List<MediaSegment> get segments => List.unmodifiable(_segments);
   bool get isCancelled => _isCancelled;
@@ -185,7 +186,7 @@ class MediaDownloadTask {
 
       request.headers.set(
         HttpHeaders.rangeHeader,
-        'bytes=0-${kMoovDetectionBytes - 1}',
+        'bytes=0-${MediaProxyConfig.instance.moovDetectionBytes - 1}',
       );
 
       final response = await request.close();
@@ -240,7 +241,8 @@ class MediaDownloadTask {
       return;
     }
 
-    if (contentLength > 0 && contentLength < kSkipMoovDetectionThreshold) {
+    if (contentLength > 0 &&
+        contentLength < MediaProxyConfig.instance.skipMoovDetectionThreshold) {
       log(() => 'Small file ($contentLength bytes), skip moov detection');
       _moovAtStart = true;
       return;
@@ -263,7 +265,13 @@ class MediaDownloadTask {
         final file = firstSegment.getSegmentFile(cacheDir);
         if (await file.exists()) {
           final bytes = await file
-              .openRead(0, min(kMoovDetectionBytes, firstSegment.expectedSize))
+              .openRead(
+                0,
+                min(
+                  MediaProxyConfig.instance.moovDetectionBytes,
+                  firstSegment.expectedSize,
+                ),
+              )
               .expand((x) => x)
               .toList();
           _moovAtStart = _parseMoovPosition(bytes);
@@ -354,7 +362,8 @@ class MediaDownloadTask {
       segment: lastSegment,
       cacheDir: cacheDir,
       headers: requestHeaders,
-      priority: kPriorityPlayingUrgent - 50, // 150，仅次于首帧分片
+      priority:
+          MediaProxyConfig.instance.priorityPlayingUrgent - 50, // 150，仅次于首帧分片
       onProgress: (bytes) {
         updateSegmentStatus(lastSegment, SegmentStatus.downloading, bytes);
       },
@@ -429,7 +438,7 @@ class MediaDownloadTask {
 
     _saveConfigTimer?.cancel();
     _saveConfigTimer = Timer(
-      const Duration(milliseconds: kConfigSaveIntervalMs),
+      Duration(milliseconds: MediaProxyConfig.instance.configSaveIntervalMs),
       _saveConfigNow,
     );
   }
@@ -515,18 +524,23 @@ class MediaDownloadTask {
     _segments.clear();
 
     // 检查分片数量限制
-    final estimatedSegments = (contentLength / kDefaultSegmentSize).ceil();
-    if (estimatedSegments > kMaxSegmentCount) {
+    final estimatedSegments =
+        (contentLength / MediaProxyConfig.instance.segmentSize).ceil();
+    if (estimatedSegments > MediaProxyConfig.instance.maxSegmentCount) {
       log(
         () =>
-            'Warning: Estimated segment count ($estimatedSegments) exceeds limit ($kMaxSegmentCount)',
+            'Warning: Estimated segment count ($estimatedSegments) exceeds limit (${MediaProxyConfig.instance.maxSegmentCount})',
       );
     }
 
     int offset = 0;
     int segmentCount = 0;
-    while (offset < contentLength && segmentCount < kMaxSegmentCount) {
-      final end = min(offset + kDefaultSegmentSize - 1, contentLength - 1);
+    while (offset < contentLength &&
+        segmentCount < MediaProxyConfig.instance.maxSegmentCount) {
+      final end = min(
+        offset + MediaProxyConfig.instance.segmentSize - 1,
+        contentLength - 1,
+      );
       _segments.add(MediaSegment(startByte: offset, endByte: end));
       offset = end + 1;
       segmentCount++;
@@ -547,9 +561,14 @@ class MediaDownloadTask {
     }
 
     if (result.isEmpty && contentLength > 0) {
-      int offset = (rangeStart ~/ kDefaultSegmentSize) * kDefaultSegmentSize;
+      int offset =
+          (rangeStart ~/ MediaProxyConfig.instance.segmentSize) *
+          MediaProxyConfig.instance.segmentSize;
       while (offset <= rangeEnd && offset < contentLength) {
-        final end = min(offset + kDefaultSegmentSize - 1, contentLength - 1);
+        final end = min(
+          offset + MediaProxyConfig.instance.segmentSize - 1,
+          contentLength - 1,
+        );
 
         var existing = _segments.firstWhere(
           (s) => s.startByte == offset,

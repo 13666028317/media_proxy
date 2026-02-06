@@ -4,7 +4,7 @@
 
 import 'dart:io';
 
-import 'constants.dart';
+import 'config.dart';
 import 'utils.dart';
 
 /// 缓存清理策略接口
@@ -42,10 +42,8 @@ class SmartCachePolicy implements CacheEvictionPolicy {
   /// 最大缓存大小限制
   final int maxSizeBytes;
 
-  SmartCachePolicy({
-    this.maxAge = const Duration(days: 7),
-    this.maxSizeBytes = kDefaultMaxCacheSize,
-  });
+  SmartCachePolicy({this.maxAge = const Duration(days: 7), int? maxSizeBytes})
+    : maxSizeBytes = maxSizeBytes ?? MediaProxyConfig.instance.maxCacheSize;
 
   @override
   List<CacheEntry> selectFilesToEvict(
@@ -76,7 +74,8 @@ class SmartCachePolicy implements CacheEvictionPolicy {
         ..sort((a, b) => a.lastAccessTime.compareTo(b.lastAccessTime));
 
       for (final entry in remaining) {
-        if (sizeAfterTTL <= maxSizeBytes * kCacheCleanupRatio)
+        if (sizeAfterTTL <=
+            maxSizeBytes * MediaProxyConfig.instance.cacheCleanupRatio)
           break; // 降到 70% 水位停止
 
         toDelete.add(entry);

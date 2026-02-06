@@ -8,11 +8,11 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
-import 'constants.dart';
+import 'config.dart';
 
 /// 打印日志（仅在开启日志时打印，使用函数式参数避免不必要的字符串构建）
 void log(String Function() messageBuilder) {
-  if (kEnableLogging) {
+  if (MediaProxyConfig.instance.enableLogging) {
     if (kDebugMode) {
       print(
         '[MediaCacheProxy] ${DateTime.now().toIso8601String()} - ${messageBuilder()}',
@@ -112,10 +112,12 @@ HttpClient createHttpClient() {
   final client = HttpClient();
   // 🔑 优化：放宽连接限制，避免死锁
   client.maxConnectionsPerHost = 16;
-  client.connectionTimeout = const Duration(
-    milliseconds: kHttpConnectTimeoutMs,
+  client.connectionTimeout = Duration(
+    milliseconds: MediaProxyConfig.instance.httpConnectTimeoutMs,
   );
-  client.idleTimeout = const Duration(seconds: kHttpIdleTimeoutSeconds);
+  client.idleTimeout = Duration(
+    seconds: MediaProxyConfig.instance.httpIdleTimeoutSeconds,
+  );
   return client;
 }
 

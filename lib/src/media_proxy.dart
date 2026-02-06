@@ -25,6 +25,8 @@
 
 // 策略与调度
 export 'cache_strategy.dart';
+// 配置类
+export 'config.dart';
 export 'constants.dart'
     show
         kEnableLogging,

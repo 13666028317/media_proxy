@@ -1,3 +1,10 @@
+## 0.0.5
+
+* **新增可配置参数管理 (MediaProxyConfig)**：提供统一的配置类，支持运行时调整分片大小、并发数、缓存策略、超时设置等 30+ 参数，无需修改源码即可定制代理行为。
+* **配置热更新支持**：通过 `MediaProxyConfig.update()` 方法可在运行时动态调整配置参数，支持部分更新。
+* **默认值集中管理**：所有配置参数均有合理的默认值，定义在 `constants.dart` 中，便于统一维护。
+* **优化配置初始化**：支持在应用启动时通过 `MediaProxyConfig.init()` 一次性配置所有参数，提升代码可维护性。
+
 ## 0.0.4
 
 * **新增功能：支持 Http 请求头透传 (Header Pass-through)**。现在可以在 `getProxyUrl` 和 `preload` 中传入自定义 Headers（如 `Authorization`, `Referer` 等），用于访问受保护的云存储资源。
