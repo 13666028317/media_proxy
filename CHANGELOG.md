@@ -1,3 +1,16 @@
+## 0.0.6
+
+* **性能优化 (Performance)**：
+  * 优化流式读取 I/O：在播放期间保持文件句柄打开，大幅减少 `open`/`close` 系统调用，降低 CPU 开销。
+  * 自适应数据刷新：`SegmentDownloader` 采用时间 (100ms) + 大小 (64KB) 双重阈值刷新磁盘缓存，减少磁盘写入频率。
+* **架构改进 (Architecture)**：
+  * 重构 `SegmentDownloader` 为抽象接口，支持依赖注入，增强可测试性。
+  * `GlobalDownloadQueue` 支持自定义下载器注入。
+* **配置增强 (Config)**：
+  * 将 `streamFileOpenRetryDelayMs`、`downloadFlushIntervalMs` 等硬编码参数提取至 `MediaProxyConfig`，支持运行时配置。
+* **稳定性 (Stability)**：
+  * 优化文件锁处理逻辑，解决高并发下的读写冲突问题。
+
 ## 0.0.5
 
 * **新增可配置参数管理 (MediaProxyConfig)**：提供统一的配置类，支持运行时调整分片大小、并发数、缓存策略、超时设置等 30+ 参数，无需修改源码即可定制代理行为。

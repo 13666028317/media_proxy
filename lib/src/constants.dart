@@ -89,6 +89,15 @@ const int kHttpIdleTimeoutSeconds = 30;
 /// 响应流读超时（秒）- 若在此时间内未收到新数据则视为网络异常并重试（如切换网络后连接挂起）
 const int kHttpStreamReadTimeoutSeconds = 15;
 
+/// 流式播放时文件打开重试延迟（毫秒）
+const int kStreamFileOpenRetryDelayMs = 50;
+
+/// 下载时数据刷新间隔（毫秒）
+const int kDownloadFlushIntervalMs = 100;
+
+/// 下载时数据刷新阈值（字节）
+const int kDownloadFlushThresholdBytes = 64 * 1024;
+
 /// MP4 相关的 MIME 类型
 const Set<String> kMp4MimeTypes = {
   'video/mp4',

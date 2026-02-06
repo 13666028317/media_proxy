@@ -10,12 +10,24 @@ import 'enums.dart';
 import 'media_segment.dart';
 import 'utils.dart';
 
-/// 分片下载器
-///
-/// 负责下载单个分片，支持断点续传和重试机制
-class SegmentDownloader {
+/// 分片下载器接口
+abstract class SegmentDownloader {
+  /// 下载分片
+  Future<bool> downloadSegment({
+    required String mediaUrl,
+    required MediaSegment segment,
+    required Directory cacheDir,
+    Map<String, String>? headers,
+    void Function(int downloadedBytes)? onProgress,
+    bool Function()? cancelToken,
+  });
+}
+
+/// 默认的 HTTP 分片下载器
+class HttpSegmentDownloader implements SegmentDownloader {
   /// 下载分片（带重试机制）
-  static Future<bool> downloadSegment({
+  @override
+  Future<bool> downloadSegment({
     required String mediaUrl,
     required MediaSegment segment,
     required Directory cacheDir,
@@ -55,7 +67,7 @@ class SegmentDownloader {
   }
 
   /// 内部下载逻辑
-  static Future<bool> _downloadSegmentInternal({
+  Future<bool> _downloadSegmentInternal({
     required String mediaUrl,
     required MediaSegment segment,
     required Directory cacheDir,
@@ -133,7 +145,8 @@ class SegmentDownloader {
       raf = await tempFile.open(mode: FileMode.append);
 
       int totalDownloaded = existingBytes;
-      int chunkCount = 0;
+      int bytesSinceLastFlush = 0;
+      DateTime lastFlushTime = DateTime.now();
 
       // 读超时：切换网络后旧连接可能挂起不报错，超时后抛 TimeoutException 以便重试并释放槽位
       final timeoutDuration = Duration(
@@ -165,13 +178,23 @@ class SegmentDownloader {
         }
 
         totalDownloaded += chunk.length;
+        bytesSinceLastFlush += chunk.length;
         segment.downloadedBytes = totalDownloaded;
-        chunkCount++;
 
-        // 每10个chunk刷新一次
-        if (chunkCount % 10 == 0) {
+        // 🔑 优化：自适应刷新策略 (时间 + 大小双重检查)
+        // 减少频繁 flush 带来的 I/O 开销，同时保证播放器能及时获取数据
+        final now = DateTime.now();
+        final shouldFlush =
+            bytesSinceLastFlush >=
+                MediaProxyConfig.instance.downloadFlushThresholdBytes ||
+            now.difference(lastFlushTime).inMilliseconds >=
+                MediaProxyConfig.instance.downloadFlushIntervalMs;
+
+        if (shouldFlush) {
           await raf?.flush();
           segment.notifyDataAvailable();
+          lastFlushTime = now;
+          bytesSinceLastFlush = 0;
         }
 
         onProgress?.call(totalDownloaded);
@@ -215,7 +238,7 @@ class SegmentDownloader {
   }
 
   /// 完成下载（重命名临时文件）
-  static Future<void> _finalizeDownload(
+  Future<void> _finalizeDownload(
     File tempFile,
     File finalFile,
     MediaSegment segment,

@@ -10,7 +10,6 @@ import 'dart:math';
 import 'package:path/path.dart' as p;
 
 import 'config.dart';
-import 'constants.dart';
 import 'download_manager.dart';
 import 'download_queue.dart';
 import 'enums.dart';
@@ -459,7 +458,7 @@ class MediaCacheProxy {
 
       if (availableFile != null) {
         final fileLength = await availableFile.length();
-        final availableBytes = fileLength - fileOffset - bytesWritten;
+        int availableBytes = fileLength - fileOffset - bytesWritten;
 
         if (availableBytes > 0) {
           // 🔑 优化：增加文件打开重试逻辑，处理可能的重命名/锁定冲突
@@ -472,20 +471,35 @@ class MediaCacheProxy {
             } catch (e) {
               openRetry++;
               if (openRetry >= 3) rethrow;
-              await Future.delayed(const Duration(milliseconds: 50));
+              await Future.delayed(
+                Duration(
+                  milliseconds:
+                      MediaProxyConfig.instance.streamFileOpenRetryDelayMs,
+                ),
+              );
             }
           }
 
           if (raf != null) {
             try {
               await raf.setPosition(fileOffset + bytesWritten);
-              final toRead = min(availableBytes, bytesToRead - bytesWritten);
-              final chunk = await raf.read(toRead.toInt());
 
-              if (chunk.isNotEmpty) {
+              // 🔑 优化：在一次打开中尽可能多地读取数据，减少 open/close 开销
+              // 特别是在播放已缓存内容时，性能提升显著
+              while (availableBytes > 0 &&
+                  bytesWritten < bytesToRead &&
+                  !session.isClosed) {
+                final toRead = min(availableBytes, bytesToRead - bytesWritten);
+                // 每次最多读 64KB，避免阻塞事件循环太久
+                final readSize = min(toRead, 64 * 1024);
+
+                final chunk = await raf.read(readSize.toInt());
+                if (chunk.isEmpty) break;
+
                 try {
                   response.add(chunk);
                   bytesWritten += chunk.length;
+                  availableBytes -= chunk.length;
                 } catch (e) {
                   log(() => '[${session.sessionId}] Client disconnected: $e');
                   session.close();
@@ -499,7 +513,7 @@ class MediaCacheProxy {
         }
       }
 
-      if (bytesWritten < bytesToRead) {
+      if (bytesWritten < bytesToRead && !session.isClosed) {
         if (segment.isCompleted) {
           // 🔑 修复：分片标记完成但数据不足，验证文件完整性
           final actualFile = await file.exists() ? file : tempFile;
@@ -530,7 +544,7 @@ class MediaCacheProxy {
               mediaUrl: session.task.mediaUrl,
               segment: segment,
               cacheDir: session.task.cacheDir,
-              priority: kPriorityPlayingUrgent,
+              priority: MediaProxyConfig.instance.priorityPlayingUrgent,
               cancelToken: () => session.isClosed,
               onProgress: (bytes) {
                 segment.downloadedBytes = bytes;
@@ -550,7 +564,12 @@ class MediaCacheProxy {
             continue;
           } else {
             // 文件完整但读取位置有问题，尝试继续读取
-            await Future.delayed(const Duration(milliseconds: 50));
+            await Future.delayed(
+              Duration(
+                milliseconds:
+                    MediaProxyConfig.instance.streamFileOpenRetryDelayMs,
+              ),
+            );
             continue;
           }
         }

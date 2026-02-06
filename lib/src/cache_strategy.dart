@@ -75,8 +75,9 @@ class SmartCachePolicy implements CacheEvictionPolicy {
 
       for (final entry in remaining) {
         if (sizeAfterTTL <=
-            maxSizeBytes * MediaProxyConfig.instance.cacheCleanupRatio)
+            maxSizeBytes * MediaProxyConfig.instance.cacheCleanupRatio) {
           break; // 降到 70% 水位停止
+        }
 
         toDelete.add(entry);
         sizeAfterTTL -= entry.sizeBytes;

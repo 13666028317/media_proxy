@@ -77,6 +77,11 @@ class MediaProxyConfig {
     int? httpIdleTimeoutSeconds,
     int? httpStreamReadTimeoutSeconds,
 
+    // ===== 性能优化配置 =====
+    int? streamFileOpenRetryDelayMs,
+    int? downloadFlushIntervalMs,
+    int? downloadFlushThresholdBytes,
+
     // ===== 默认值配置 =====
     String? defaultContentType,
   }) {
@@ -109,6 +114,9 @@ class MediaProxyConfig {
       httpResponseTimeoutMs: httpResponseTimeoutMs,
       httpIdleTimeoutSeconds: httpIdleTimeoutSeconds,
       httpStreamReadTimeoutSeconds: httpStreamReadTimeoutSeconds,
+      streamFileOpenRetryDelayMs: streamFileOpenRetryDelayMs,
+      downloadFlushIntervalMs: downloadFlushIntervalMs,
+      downloadFlushThresholdBytes: downloadFlushThresholdBytes,
       defaultContentType: defaultContentType,
     );
   }
@@ -148,6 +156,9 @@ class MediaProxyConfig {
     int? httpResponseTimeoutMs,
     int? httpIdleTimeoutSeconds,
     int? httpStreamReadTimeoutSeconds,
+    int? streamFileOpenRetryDelayMs,
+    int? downloadFlushIntervalMs,
+    int? downloadFlushThresholdBytes,
     String? defaultContentType,
   }) {
     final current = instance;
@@ -197,6 +208,12 @@ class MediaProxyConfig {
           httpIdleTimeoutSeconds ?? current.httpIdleTimeoutSeconds,
       httpStreamReadTimeoutSeconds:
           httpStreamReadTimeoutSeconds ?? current.httpStreamReadTimeoutSeconds,
+      streamFileOpenRetryDelayMs:
+          streamFileOpenRetryDelayMs ?? current.streamFileOpenRetryDelayMs,
+      downloadFlushIntervalMs:
+          downloadFlushIntervalMs ?? current.downloadFlushIntervalMs,
+      downloadFlushThresholdBytes:
+          downloadFlushThresholdBytes ?? current.downloadFlushThresholdBytes,
       defaultContentType: defaultContentType ?? current.defaultContentType,
     );
   }
@@ -231,6 +248,9 @@ class MediaProxyConfig {
     int? httpResponseTimeoutMs,
     int? httpIdleTimeoutSeconds,
     int? httpStreamReadTimeoutSeconds,
+    int? streamFileOpenRetryDelayMs,
+    int? downloadFlushIntervalMs,
+    int? downloadFlushThresholdBytes,
     String? defaultContentType,
   }) : segmentSize = segmentSize ?? kDefaultSegmentSize,
        maxSegmentCount = maxSegmentCount ?? kMaxSegmentCount,
@@ -270,6 +290,12 @@ class MediaProxyConfig {
            httpIdleTimeoutSeconds ?? kHttpIdleTimeoutSeconds,
        httpStreamReadTimeoutSeconds =
            httpStreamReadTimeoutSeconds ?? kHttpStreamReadTimeoutSeconds,
+       streamFileOpenRetryDelayMs =
+           streamFileOpenRetryDelayMs ?? kStreamFileOpenRetryDelayMs,
+       downloadFlushIntervalMs =
+           downloadFlushIntervalMs ?? kDownloadFlushIntervalMs,
+       downloadFlushThresholdBytes =
+           downloadFlushThresholdBytes ?? kDownloadFlushThresholdBytes,
        defaultContentType = defaultContentType ?? kDefaultContentType;
 
   // ===== 分片配置 =====
@@ -373,6 +399,17 @@ class MediaProxyConfig {
 
   /// 响应流读超时（秒）
   final int httpStreamReadTimeoutSeconds;
+
+  // ===== 性能优化配置 =====
+
+  /// 流式播放时文件打开重试延迟（毫秒）
+  final int streamFileOpenRetryDelayMs;
+
+  /// 下载时数据刷新间隔（毫秒）
+  final int downloadFlushIntervalMs;
+
+  /// 下载时数据刷新阈值（字节）
+  final int downloadFlushThresholdBytes;
 
   // ===== 默认值配置 =====
 

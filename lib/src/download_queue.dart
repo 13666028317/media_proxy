@@ -55,6 +55,13 @@ class GlobalDownloadQueue {
   final Map<String, int> _startupLocks = {};
   bool _isProcessing = false;
 
+  SegmentDownloader _downloader = HttpSegmentDownloader();
+
+  /// 设置下载器（用于测试或自定义）
+  set downloader(SegmentDownloader downloader) {
+    _downloader = downloader;
+  }
+
   /// 获取当前正在播放的媒体 URL
   String? get currentPlayingUrl => _currentPlayingUrl;
 
@@ -428,7 +435,7 @@ class GlobalDownloadQueue {
     bool success = false;
 
     try {
-      success = await SegmentDownloader.downloadSegment(
+      success = await _downloader.downloadSegment(
         mediaUrl: item.mediaUrl,
         segment: item.segment,
         cacheDir: item.cacheDir,

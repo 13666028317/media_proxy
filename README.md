@@ -9,6 +9,7 @@ A Flutter package that provides a local HTTP proxy for caching and prefetching m
 - **Header Pass-through**: Support custom HTTP headers (e.g., Authorization, Referer) for secure media sources.
 - **Aggressive Prefetching**: Predictively downloads upcoming segments to minimize buffering.
 - **Startup Optimization**: Exclusive bandwidth mode for the first fragment and MP4 metadata (moov) to achieve near-instant playback.
+- **Performance Optimization**: Minimized I/O operations and adaptive buffer flushing for efficient resource usage.
 - **MP4 Optimization**: Automatically handles `moov` atom placement for faster startup.
 - **Global Download Queue**: Manages concurrent downloads across different media tasks.
 - **Cache Management**: LRU-based cache cleanup and statistics.
@@ -102,6 +103,7 @@ Available configuration parameters include:
 - **Concurrency**: `maxConcurrentDownloads`, `globalMaxConcurrentDownloads`
 - **Timeouts**: `httpConnectTimeoutMs`, `httpResponseTimeoutMs`, `httpStreamReadTimeoutSeconds`
 - **Moov Optimization**: `enableMoovDetection`, `moovDetectionBytes`
+- **Performance**: `streamFileOpenRetryDelayMs`, `downloadFlushIntervalMs`, `downloadFlushThresholdBytes`
 - **Priority**: `priorityPlaying`, `priorityPlayingUrgent`, `priorityPreload`
 - **Retry**: `downloadRetryCount`, `downloadRetryInitialDelayMs`
 
